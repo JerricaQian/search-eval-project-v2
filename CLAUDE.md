@@ -58,7 +58,7 @@
 ## phase3 与 phase2 的衔接
 
 - phase3 评测读取原始截图 + 与该截图一一对应的 Phase2 元素清单 JSON。
-- 单图元素清单是 phase3 各评测 skill 的唯一事实源：只有 `recognition.phase3Ready=true` 才可消费。批量 `index.json` 仅是索引，不能作为事实源。
+- Phase2 清单是对象身份、语义、归属、边界和计数的唯一结构化事实源；原图是视觉秩序、层级、分区、视觉关系与像素颜色的判断源。只有 `recognition.phase3Ready=true` 的单图清单可消费，批量 `index.json` 仅是索引。
 
 ## 数据流向一览
 
@@ -95,7 +95,7 @@ screenshots/ ──phase2 轻量识别──▶ screenshots-out/ ──phase3 �
 - **Screenshot Agent 独立**：`capture_only` 时执行现场 ADB 截图；`evaluate_only` 时只读运行 `phase1-screenshot/scripts/discover_screenshot_groups.py` 发现、聚合和校验已有截图；不与其它 phase 混入同一上下文。
 - **Evaluation Agent 独立**：对一个搜索词的已确认截图，内部把本地轻量识别（phase2）→ 全维度评测（phase3）→ 问题证据（phase4）按序完成。Phase2 的候选生成和校验仍只运行本地脚本，并为每张截图分别生成清单；当前图片校准可读取当前截图，但只能回写经审计的 Phase2 事实。词级 Agent 不读取 Phase5 Skill、不跨词汇总、不生成 HTML。
 - **统一派发机制**：先用 `python3 workflow/eval_cli.py prepare-evaluate` 为每个词生成一个 `MEITUAN_EVAL_TASK` 任务文件，同批任务共享 `batchId` 且各自使用唯一 `runId`。Claude、Codex、Catpaw 与其他宿主统一运行 `prepare-dispatch --task <taskPath> --host <host>`，声明实际能力后只把返回的 `taskPath` 交给一个 Evaluation Agent；宿主差异只存在于如何启动该 Agent。Agent 必须完整读取 `workflow/contracts/phase234-query-pipeline.md`、task 的 `contractFiles` 与 `requiredReads`，执行 CV 候选、当前图复核、发布与有界纠错，再进入 Phase3/4。结果写入 `resultPath` 后运行 `completionCommand` 生成本地回执。历史任务仍可通过 `.claude/agents/phase234-query-pipeline.md` 薄兼容入口读取正式契约；历史产物保持不变。
-- **FACT_GATES 与 Phase2 返工复核内嵌在这一次调用内部**：结构对齐等 Phase2 前置事实校验，以及校验失败触发的 Phase2 本地返工（按 `reprocessTargets` 重跑失败卡/失败行、更新对应单图清单、重跑受影响 skill），都必须在这同一个子代理的同一次执行内部完成闭环。视觉层级的字号事实改为 Phase3 校准 `glyphHeightPx` 像素测量，不再要求 Phase2 `fontSizeBucket`。Phase3 不得回看原图补写 Phase2 事实；主 Agent 只根据这一次调用最终返回的 `ok`/`blockedAt`/`error` 决定是否继续 phase5 之后的 NoCode 出口或整体重跑。
+- **FACT_GATES 与 Phase2 返工复核内嵌在这一次调用内部**：Phase2 前置事实校验，以及校验失败触发的 Phase2 本地返工（按 `reprocessTargets` 重跑失败卡/失败行、更新对应单图清单、重跑受影响 skill），都必须在这同一个子代理的同一次执行内部完成闭环。Phase3 可按叶子 Skill 使用当前原图判断视觉体验，但不得据此补写 Phase2 的对象、语义、归属或边界事实；主 Agent 只根据这一次调用最终返回的 `ok`/`blockedAt`/`error` 决定是否继续 phase5 之后的 NoCode 出口或整体重跑。
 - Phase3 统一入口与维度契约：先读 `phase3-evaluation/SKILL.md` 及共同知识索引，再根据 `phase3-evaluation/catalog.json` 读取对应维度的 `contract.md`，最后只读用户选中的叶子 Skill；评级仍以叶子 Skill 为准。
 
 Agent 任务编排先要求用户选择 `capture_only`、`evaluate_only` 或 `capture_and_evaluate`，再按模式询问必要参数。仅评测已有截图时先发现截图组，不询问搜索词、Tab、屏数；截图+评测时必须在截图成功后才询问评测范围与报告出口。Phase2 默认 lightweight，不作为额外确认项。
@@ -105,7 +105,7 @@ Agent 任务编排的固定顺序：① Screenshot Agent 截图或发现/校验�
 ### 批量子代理调度纪律（铁律）
 
 - **下发阈值按图计，不按词计**：确认的 `selectedScreenshots` 总数超过 **3 张** 时，宿主必须使用词级 Evaluation Agent 调度。该计数发生在截图发现和未命名图身份映射完成之后；3 张及以下的任务不因图片数量本身强制下发子代理。进入批量调度后，仍按下列单词边界和并发上限执行。
-- **模型能力按阶段隔离**：Phase2 的候选提取、卡型契约和校验器必须运行本地 CV/OCR 与确定性 hooks；当前图片校准可由具备读图能力的模型依据当前像素回写 Phase2 manifest，但不得注入黄金字段或语言猜写。Phase3/4 只能消费已验收 manifest，不能回看截图补写基础事实。模型名由宿主 adapter 选择，adapter 必须确认其具备读图和结构化 JSON 输出能力。
+- **模型能力按阶段隔离**：Phase2 的候选提取、卡型契约和校验器必须运行本地 CV/OCR 与确定性 hooks；当前图片校准可由具备读图能力的模型依据当前像素回写 Phase2 manifest，但不得注入黄金字段或语言猜写。Phase3/4 只消费已验收 manifest 中的结构化事实；视觉类 Skill 可复用同一 Agent 已读取的当前原图，但不能借视觉判断改写 Phase2。模型名由宿主 adapter 选择，adapter 必须确认其具备读图和结构化 JSON 输出能力。
 - 批量搜索词执行时，**一个子代理只处理一个搜索词**（该词所需的 Phase2/Phase3/Phase4 连续工作）；不得把多个词、多个截图词或“剩余若干词”合并下发给同一子代理。
 - 每批并发最多 **3 个子代理 / 3 个搜索词**；必须等待本批全部成功、失败或明确介入完成后，才可启动下一批。不得为了追吞吐提前投放下一批。
 - 子代理要处理的当前搜索词、批次序号、输入截图和输出目录必须冻结在 `MEITUAN_EVAL_TASK` 中；派发 prompt 只传 `taskPath`，不得再复制一份可能漂移的输入。失败只重试该词，不影响同批其他词和已完成批次。
@@ -177,7 +177,7 @@ phase2 默认开启轻量识别；仅 `annotate=false` 显式跳过。`phase2Mod
 
 ## 一致性铁律（评测 phase 必守）
 
-1. 每张截图对应的 Phase2 清单是该图唯一事实源：`overview.total` 由各单图清单确定性计数后汇总，禁止各 skill 自行拆分、重数或跨图合并事实。
+1. 每张截图对应的 Phase2 清单是对象库存、身份、语义、归属和计数的唯一结构化事实源；原图只负责叶子 Skill 明确声明的视觉判断或像素测量。`overview.total` 由各单图清单确定性计数后汇总，禁止各 skill 自行拆分、重数或跨图合并事实。
 2. 评级只认 skill 的 weight 分档，不自创中间档。
 3. 只评可见内容，截图外信息（落地页真实性、提示条准确性）不计入评级。
 4. 逐组件给独立评级，不整屏笼统打分。

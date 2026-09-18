@@ -2,29 +2,23 @@
   "contract": "phase3.measurement-requirements",
   "defaultPolicy": "phase2_json_only",
   "skills": {
-    "eval-5-info-hierarchy": {
-      "policy": "required_deterministic_pixel_measurement",
-      "script": "phase3-evaluation/dimensions/card-component/skills/eval-5-info-hierarchy/scripts/extract_component_metrics.py",
-      "arguments": ["--skill", "eval-5-info-hierarchy", "--manifest-input", "<manifest>", "--output", "<artifact>"],
-      "requiredOutput": ["measurementScope", "hierarchyCalibration", "components"]
-    },
     "eval-3-element-compliance-scanner": {
       "policy": "phase2_json_or_review",
       "rule": "fontSizeBucket is not pt; unavailable exact typography becomes a review item and never a fabricated rating."
     },
     "eval-3-color-logic": {
-      "policy": "required_deterministic_json_computation",
+      "policy": "required_deterministic_pixel_measurement",
       "dependencyKey": "component-color-families",
       "script": "phase3-evaluation/dimensions/card-component/skills/eval-3-color-logic/scripts/compute_component_color_families.py",
       "arguments": ["--manifest", "<manifest>", "--output", "<artifact>"],
-      "requiredOutput": ["contractVersion", "components"]
+      "requiredOutput": ["contractVersion", "screenshot", "components"]
     },
     "eval-3-page-color-logic": {
-      "policy": "required_deterministic_json_computation",
+      "policy": "required_deterministic_pixel_measurement",
       "dependencyKey": "component-color-families",
       "script": "phase3-evaluation/dimensions/card-component/skills/eval-3-color-logic/scripts/compute_component_color_families.py",
       "arguments": ["--manifest", "<manifest>", "--output", "<artifact>"],
-      "requiredOutput": ["contractVersion", "components"]
+      "requiredOutput": ["contractVersion", "screenshot", "components"]
     }
   }
 }

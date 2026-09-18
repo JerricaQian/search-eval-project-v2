@@ -86,7 +86,7 @@ class ValidateElementComplexityTest(unittest.TestCase):
         row = self.valid_row()
         row["measurement"] = {"tool": "obsolete"}
         errors: list[str] = []
-        self.module.require_json_derived_evidence(
+        self.module.require_evidence_source(
             errors, "eval-4/C1", row, "phase2_json_visual_inventory"
         )
         self.assertTrue(any("measurement_forbidden" in error for error in errors))

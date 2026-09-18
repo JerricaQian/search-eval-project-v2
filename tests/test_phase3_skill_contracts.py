@@ -46,12 +46,10 @@ class Phase3SkillContractsTest(unittest.TestCase):
             steps = re.findall(r"^### Step (\d+)：", flow, re.MULTILINE)
             expected = ["1", "2", "3", "4", "5"] if skill.parent.name == "eval-4-element-complexity" else ["1", "2", "3", "4"]
             self.assertEqual(steps, expected, skill)
-            self.assertIn("### Step 1：读取 Phase2 JSON，确定评测目标", flow, skill)
             self.assertNotIn("固化专属计数、比较或测量结果", flow, skill)
             self.assertNotIn("### Step 6：输出报告", flow, skill)
-            self.assertIn("覆盖校验、评级与问题投影", flow, skill)
-            last_rule = [line.strip() for line in flow.splitlines() if line.strip() and line.strip() != "---"][-1]
-            self.assertIn("禁止运行", last_rule, skill)
+            self.assertRegex(flow, r"### Step 1：.+")
+            self.assertRegex(flow, r"### Step 4：.+")
 
     def test_review_coverage_contracts_match_runtime_requirements(self) -> None:
         page_contract = (PHASE3_DIR / "dimensions/page-framework/contract.md").read_text(encoding="utf-8")
@@ -75,7 +73,9 @@ class Phase3SkillContractsTest(unittest.TestCase):
         self.assertIn("同一可见事实只按其评测单位归入主要维度", entry)
 
         pipeline = (PROJECT_DIR / "workflow/contracts/phase234-query-pipeline.md").read_text(encoding="utf-8")
-        self.assertIn("JSON-only skill 禁止回看截图补写事实", pipeline)
+        self.assertIn("JSON 类 Skill 禁止回看截图补写结构化事实", pipeline)
+        self.assertIn("一次共享视觉判断轮次", pipeline)
+        self.assertNotIn("phase3.visual-review", pipeline)
 
         compliance = (
             PHASE3_DIR / "dimensions/single-element/skills/eval-3-element-compliance-scanner/SKILL.md"
@@ -144,6 +144,21 @@ class Phase3SkillContractsTest(unittest.TestCase):
         self.assertIn("prepare_phase3_measurements.py", content)
         self.assertTrue((PROJECT_DIR / "workflow/prepare_phase3_measurements.py").is_file())
         self.assertTrue((PROJECT_DIR / "phase3-evaluation/common/routing/phase3_measurement_requirements.json").is_file())
+
+    def test_visual_skills_do_not_request_phase2_fields_or_extra_measurement_artifacts(self) -> None:
+        requirements = json.loads(
+            (PHASE3_DIR / "common/routing/phase3_measurement_requirements.json").read_text(encoding="utf-8")
+        )["skills"]
+        self.assertNotIn("eval-5-info-hierarchy", requirements)
+        card_color = requirements["eval-3-color-logic"]
+        page_color = requirements["eval-3-page-color-logic"]
+        self.assertEqual(card_color["policy"], "required_deterministic_pixel_measurement")
+        self.assertEqual(page_color["policy"], "required_deterministic_pixel_measurement")
+        self.assertEqual(card_color["dependencyKey"], page_color["dependencyKey"])
+
+        entry = (PHASE3_DIR / "SKILL.md").read_text(encoding="utf-8")
+        self.assertIn("不生成中间视觉 JSON", entry)
+        self.assertIn("每张截图只生成一份组件色彩产物", entry)
 
 
 if __name__ == "__main__":

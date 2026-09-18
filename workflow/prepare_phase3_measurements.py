@@ -52,17 +52,20 @@ def main() -> int:
             output = prepared_dependencies.get(dependency_key)
             if output is None:
                 output = args.output_dir / f"{manifest.stem}.{dependency_key}.json"
-                if policy == "required_deterministic_pixel_measurement":
-                    command = [
-                        sys.executable, str(ROOT / requirement["script"]),
-                        "--project-dir", str(ROOT), "--scenes", str(manifest),
-                        "--skill", skill, "--manifest-input", str(manifest), "--output", str(output),
-                    ]
-                else:
-                    command = [
-                        sys.executable, str(ROOT / requirement["script"]),
-                        "--manifest", str(manifest), "--output", str(output),
-                    ]
+                replacements = {
+                    "<projectDir>": str(ROOT),
+                    "<manifest>": str(manifest),
+                    "<artifact>": str(output),
+                    "<skill>": skill,
+                }
+                declared_arguments = requirement.get("arguments")
+                if not isinstance(declared_arguments, list) or not all(
+                    isinstance(value, str) for value in declared_arguments
+                ):
+                    raise ValueError(f"measurement_arguments_invalid:{skill}")
+                command = [sys.executable, str(ROOT / requirement["script"])] + [
+                    replacements.get(value, value) for value in declared_arguments
+                ]
                 completed = subprocess.run(command, cwd=ROOT, check=False, capture_output=True, text=True)
                 if completed.returncode != 0:
                     raise ValueError(f"measurement_failed:{skill}:{completed.stderr.strip() or completed.stdout.strip()}")

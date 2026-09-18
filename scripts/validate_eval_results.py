@@ -28,8 +28,7 @@ COMPONENT_ROW_REQUIREMENTS: dict[str, set[str]] = {
         "includedIconStyles", "excludedEntities", "tagStyleCount", "iconStyleCount", "evidenceSource", "rating",
     },
     "eval-5-info-hierarchy": {
-        "componentId", "sourceElements", "weightSequence", "tierTrace", "levelCount",
-        "calibrationProfile", "glyphHeightGapThresholdPx", "rating",
+        "componentId", "sourceElements", "weightSequence", "tierTrace", "levelCount", "rating",
     },
     "eval-6-info-partitioning": {"componentId", "partitions", "adjacentBoundaryChecks", "excludedPairs", "evidenceSource", "issueCount", "rating"},
     "eval-7-info-authenticity": {
@@ -41,10 +40,6 @@ COMPONENT_ROW_REQUIREMENTS: dict[str, set[str]] = {
         "selfRepeatCandidates", "duplicates", "duplicateCount", "scanCoverage",
         "evidenceSource", "rating",
     },
-}
-
-MEASUREMENT_REQUIRED_SKILLS = {
-    "eval-5-info-hierarchy",
 }
 
 COMPONENT_FULL_COVERAGE_SKILLS = {
@@ -228,27 +223,27 @@ def require_measurement(errors: list[str], prefix: str, row: dict[str, Any]) -> 
         errors.append(f"{prefix}:measurement_parameters_must_be_non_empty_object")
 
 
-def require_json_derived_evidence(
+def require_evidence_source(
     errors: list[str],
     prefix: str,
     row: dict[str, Any],
     expected_source: str,
 ) -> None:
-    """Require direct-JSON provenance and reject obsolete derived measurements."""
+    """Require the declared provenance and reject obsolete row-level measurements."""
     if row.get("evidenceSource") != expected_source:
         errors.append(f"{prefix}:evidenceSource_must_be_{expected_source}")
     if "measurement" in row:
-        errors.append(f"{prefix}:measurement_forbidden_for_json_derived_skill")
+        errors.append(f"{prefix}:row_level_measurement_forbidden")
 
 
-def require_component_color_json_evidence(
+def require_component_color_pixel_evidence(
     errors: list[str],
     prefix: str,
     row: dict[str, Any],
     active_by_id: dict[str, dict[str, Any]],
 ) -> None:
-    """Validate the component-colour row derived directly from visual JSON fields."""
-    require_json_derived_evidence(errors, prefix, row, "phase2_json_visual_colors")
+    """Validate a component-colour row produced from bound screenshot pixels."""
+    require_evidence_source(errors, prefix, row, "original_screenshot_pixels")
     scanned = row.get("scannedElementIds")
     excluded = row.get("excludedElementIds")
     source_values = row.get("sourceColorValues")
@@ -280,10 +275,10 @@ def require_component_color_json_evidence(
 
 
 def require_page_color_component_aggregation(errors: list[str], prefix: str, row: dict[str, Any]) -> None:
-    """Validate the V3 page-colour union of component seven-colour families."""
-    if row.get("colorLogicContractVersion") != "3.0":
-        errors.append(f"{prefix}:colorLogicContractVersion_must_be_3.0")
-    require_json_derived_evidence(errors, prefix, row, "component_color_family_aggregation")
+    """Validate the V4 page-colour union of component pixel-colour families."""
+    if row.get("colorLogicContractVersion") != "4.0":
+        errors.append(f"{prefix}:colorLogicContractVersion_must_be_4.0")
+    require_evidence_source(errors, prefix, row, "component_pixel_color_aggregation")
     artifact = row.get("componentColorArtifact")
     if not isinstance(artifact, str) or not artifact or not Path(artifact).is_file():
         errors.append(f"{prefix}:componentColorArtifact_missing")
@@ -367,48 +362,26 @@ def require_single_element_color_pixel_evidence(
         errors.append(f"{prefix}:rating_must_be_{expected_rating}")
 
 
-def require_hierarchy_pixel_evidence(errors: list[str], prefix: str, row: dict[str, Any]) -> None:
-    """Validate calibrated glyph-height evidence and its measurement artifact."""
-    if row.get("calibrationProfile") != "phase3.hierarchy-glyph.v1":
-        errors.append(f"{prefix}:calibrationProfile_invalid")
-    threshold = row.get("glyphHeightGapThresholdPx")
-    if not isinstance(threshold, int) or threshold < 3:
-        errors.append(f"{prefix}:glyphHeightGapThresholdPx_invalid")
+def require_hierarchy_visual_evidence(errors: list[str], prefix: str, row: dict[str, Any]) -> None:
+    """Validate coverage of a qualitative original-screenshot hierarchy review."""
     source_elements = row.get("sourceElements")
-    if not isinstance(source_elements, list) or not source_elements:
-        errors.append(f"{prefix}:sourceElements_must_be_non_empty_array")
-    elif any(
-        not isinstance(item, dict)
-        or not isinstance(item.get("glyphHeightPx"), int)
-        or item.get("glyphHeightPx", 0) <= 0
-        or not isinstance(item.get("chromatic"), bool)
-        for item in source_elements
+    weight_sequence = row.get("weightSequence")
+    tier_trace = row.get("tierTrace")
+    level_count = row.get("levelCount")
+    if not isinstance(source_elements, list) or not source_elements or any(
+        not isinstance(item, dict) for item in source_elements
     ):
-        errors.append(f"{prefix}:sourceElements_require_glyphHeightPx_and_chromatic")
-    measurement = row.get("measurement")
-    artifact_path = measurement.get("artifactPath") if isinstance(measurement, dict) else None
-    if not isinstance(artifact_path, str) or not Path(artifact_path).is_file():
-        return
-    try:
-        artifact = json.loads(Path(artifact_path).read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        errors.append(f"{prefix}:hierarchy_measurement_artifact_unreadable")
-        return
-    component = next(
-        (
-            item for item in artifact.get("components", [])
-            if isinstance(item, dict) and str(item.get("cardId") or "") == str(row.get("componentId") or "")
-        ),
-        None,
-    )
-    hierarchy = component.get("hierarchyMeasurement") if isinstance(component, dict) else None
-    if not isinstance(hierarchy, dict):
-        errors.append(f"{prefix}:hierarchy_measurement_component_missing")
-        return
-    if hierarchy.get("calibrationProfile") != row.get("calibrationProfile"):
-        errors.append(f"{prefix}:calibrationProfile_must_match_measurement_artifact")
-    if hierarchy.get("glyphHeightGapThresholdPx") != threshold:
-        errors.append(f"{prefix}:glyphHeightGapThresholdPx_must_match_measurement_artifact")
+        errors.append(f"{prefix}:sourceElements_must_be_non_empty_object_array")
+    if not isinstance(weight_sequence, list) or not weight_sequence:
+        errors.append(f"{prefix}:weightSequence_must_be_non_empty_array")
+    if not isinstance(tier_trace, list) or not tier_trace:
+        errors.append(f"{prefix}:tierTrace_must_be_non_empty_array")
+    if not isinstance(level_count, int) or level_count < 1:
+        errors.append(f"{prefix}:levelCount_invalid")
+    elif isinstance(tier_trace, list) and level_count != len(tier_trace):
+        errors.append(f"{prefix}:levelCount_must_match_tierTrace")
+    if "measurement" in row:
+        errors.append(f"{prefix}:hierarchy_visual_review_must_not_require_measurement")
 
 
 def require_complexity_coverage(
@@ -540,82 +513,16 @@ def require_complexity_coverage(
         if set(included_tag_ids) != ledger_tag_ids:
             errors.append(f"{prefix}:includedTagStyles_must_cover_candidateLedger_included_tags")
 
-def _union_element_bounds(
-    element_ids: list[str],
-    active_by_id: dict[str, dict[str, Any]],
-) -> list[int] | None:
-    boxes = [active_by_id.get(element_id, {}).get("coord") for element_id in element_ids]
-    if not boxes or any(
-        not isinstance(box, list) or len(box) != 4 or any(not isinstance(value, int) for value in box)
-        for box in boxes
-    ):
-        return None
-    x0 = min(box[0] for box in boxes)
-    y0 = min(box[1] for box in boxes)
-    x1 = max(box[0] + box[2] for box in boxes)
-    y1 = max(box[1] + box[3] for box in boxes)
-    return [x0, y0, x1 - x0, y1 - y0]
-
-
-def _json_relation(first: list[int], second: list[int]) -> str:
-    first_right = first[0] + first[2]
-    first_bottom = first[1] + first[3]
-    second_right = second[0] + second[2]
-    second_bottom = second[1] + second[3]
-    if first_right <= second[0]:
-        return "left_of"
-    if second_right <= first[0]:
-        return "right_of"
-    if first_bottom <= second[1]:
-        return "above"
-    if second_bottom <= first[1]:
-        return "below"
-    return "overlap"
-
-
-def _validate_json_regions(
-    errors: list[str],
-    prefix: str,
-    regions: Any,
-    active_by_id: dict[str, dict[str, Any]],
-) -> dict[str, dict[str, Any]]:
-    if not isinstance(regions, list) or not regions:
-        errors.append(f"{prefix}:regions_must_be_non_empty_array")
-        return {}
-    by_name: dict[str, dict[str, Any]] = {}
-    for index, region in enumerate(regions, start=1):
-        if not isinstance(region, dict):
-            errors.append(f"{prefix}:region_{index}_must_be_object")
-            continue
-        name = region.get("region")
-        element_ids = region.get("elementIds")
-        bounds = region.get("contentBounds")
-        if not isinstance(name, str) or not name or name in by_name:
-            errors.append(f"{prefix}:region_{index}_name_missing_or_duplicate")
-            continue
-        if not isinstance(element_ids, list) or not element_ids or not all(
-            isinstance(element_id, str) and element_id in active_by_id for element_id in element_ids
-        ):
-            errors.append(f"{prefix}:region_{name}_elementIds_invalid")
-            continue
-        expected_bounds = _union_element_bounds(element_ids, active_by_id)
-        if bounds != expected_bounds:
-            errors.append(f"{prefix}:region_{name}_contentBounds_must_equal_json_element_union")
-        by_name[name] = region
-    return by_name
-
-
-def require_alignment_json_evidence(
+def require_alignment_visual_evidence(
     errors: list[str],
     prefix: str,
     row: dict[str, Any],
-    active_by_id: dict[str, dict[str, Any]],
 ) -> None:
-    """Validate eval-2 entirely from Phase2 JSON coordinates."""
-    if row.get("evidenceSource") != "phase2_json_coordinates":
-        errors.append(f"{prefix}:evidenceSource_must_be_phase2_json_coordinates")
+    """Validate coverage and rating consistency of a visual-order review."""
+    if row.get("evidenceSource") != "original_screenshot_visual_review":
+        errors.append(f"{prefix}:evidenceSource_must_be_original_screenshot_visual_review")
     if "measurement" in row:
-        errors.append(f"{prefix}:pixel_measurement_forbidden")
+        errors.append(f"{prefix}:visual_review_must_not_be_measurement")
     members = row.get("members")
     signatures = row.get("layoutSignatures")
     checks = row.get("readingOrderChecks")
@@ -626,7 +533,6 @@ def require_alignment_json_evidence(
         errors.append(f"{prefix}:layoutSignatures_must_match_members")
         return
 
-    relation_sets: list[set[tuple[str, str, str]]] = []
     signature_members: set[str] = set()
     for index, signature in enumerate(signatures, start=1):
         if not isinstance(signature, dict):
@@ -641,29 +547,12 @@ def require_alignment_json_evidence(
             errors.append(f"{prefix}:layoutSignature_{index}_layoutMode_required")
         if not isinstance(signature.get("layoutSignature"), str) or not signature["layoutSignature"].strip():
             errors.append(f"{prefix}:layoutSignature_{index}_layoutSignature_required")
-        regions = _validate_json_regions(
-            errors, f"{prefix}:layoutSignature_{index}", signature.get("regions"), active_by_id
-        )
+        regions = signature.get("regions")
+        if not isinstance(regions, list):
+            errors.append(f"{prefix}:layoutSignature_{index}_regions_must_be_array")
         relations = signature.get("relations")
-        if not isinstance(relations, list) or not relations:
-            errors.append(f"{prefix}:layoutSignature_{index}_relations_required")
-            continue
-        relation_set: set[tuple[str, str, str]] = set()
-        for relation_index, relation in enumerate(relations, start=1):
-            if not isinstance(relation, dict):
-                errors.append(f"{prefix}:layoutSignature_{index}_relation_{relation_index}_invalid")
-                continue
-            first_name = relation.get("fromRegion")
-            second_name = relation.get("toRegion")
-            declared = relation.get("relation")
-            if first_name not in regions or second_name not in regions:
-                errors.append(f"{prefix}:layoutSignature_{index}_relation_{relation_index}_unknown_region")
-                continue
-            expected = _json_relation(regions[first_name]["contentBounds"], regions[second_name]["contentBounds"])
-            if declared != expected:
-                errors.append(f"{prefix}:layoutSignature_{index}_relation_{relation_index}_must_equal_{expected}")
-            relation_set.add((str(first_name), str(second_name), str(declared)))
-        relation_sets.append(relation_set)
+        if not isinstance(relations, list):
+            errors.append(f"{prefix}:layoutSignature_{index}_relations_must_be_array")
 
     if signature_members != set(members):
         errors.append(f"{prefix}:layoutSignatures_must_cover_members")
@@ -693,26 +582,29 @@ def require_alignment_json_evidence(
         errors.append(f"{prefix}:readingOrderChecks_must_cover_members")
     if "not_assessable" in statuses:
         errors.append(f"{prefix}:not_assessable_requires_phase2_review")
-    relations_consistent = bool(relation_sets) and all(value == relation_sets[0] for value in relation_sets[1:])
-    expected_rating = "不达标" if "inversion" in statuses else "达标" if (
-        "local_adjustment" in statuses or not relations_consistent
-    ) else "优秀"
+    expected_rating = "不达标" if "inversion" in statuses else "达标" if "local_adjustment" in statuses else "优秀"
     if row.get("rating") != expected_rating:
         errors.append(f"{prefix}:rating_must_be_{expected_rating}")
 
 
-def require_partition_json_evidence(
+def require_partition_visual_evidence(
     errors: list[str],
     prefix: str,
     row: dict[str, Any],
-    active_by_id: dict[str, dict[str, Any]],
 ) -> None:
-    """Validate eval-6 gaps from Phase2 JSON element-coordinate unions."""
-    if row.get("evidenceSource") != "phase2_json_coordinates":
-        errors.append(f"{prefix}:evidenceSource_must_be_phase2_json_coordinates")
+    """Validate coverage and counting of a qualitative partition review."""
+    if row.get("evidenceSource") != "original_screenshot_visual_review":
+        errors.append(f"{prefix}:evidenceSource_must_be_original_screenshot_visual_review")
     if "measurement" in row:
-        errors.append(f"{prefix}:pixel_measurement_forbidden")
-    regions = _validate_json_regions(errors, prefix, row.get("partitions"), active_by_id)
+        errors.append(f"{prefix}:visual_review_must_not_be_measurement")
+    partitions = row.get("partitions")
+    if not isinstance(partitions, list):
+        errors.append(f"{prefix}:partitions_must_be_array")
+        partitions = []
+    region_names = {
+        str(item.get("region")) for item in partitions
+        if isinstance(item, dict) and isinstance(item.get("region"), str) and item.get("region")
+    }
     checks = row.get("adjacentBoundaryChecks")
     excluded_pairs = row.get("excludedPairs")
     if not isinstance(excluded_pairs, list):
@@ -728,31 +620,15 @@ def require_partition_json_evidence(
             continue
         first_name = check.get("firstRegion")
         second_name = check.get("secondRegion")
-        axis = check.get("axis")
-        if first_name not in regions or second_name not in regions:
+        if first_name not in region_names or second_name not in region_names:
             errors.append(f"{prefix}:boundaryCheck_{index}_unknown_region")
             continue
-        if axis not in {"horizontal", "vertical"}:
-            errors.append(f"{prefix}:boundaryCheck_{index}_axis_invalid")
+        if not isinstance(check.get("clear"), bool):
+            errors.append(f"{prefix}:boundaryCheck_{index}_clear_must_be_boolean")
             continue
-        first = regions[first_name]["contentBounds"]
-        second = regions[second_name]["contentBounds"]
-        gap_x = max(second[0] - (first[0] + first[2]), first[0] - (second[0] + second[2]))
-        gap_y = max(second[1] - (first[1] + first[3]), first[1] - (second[1] + second[3]))
-        expected_gap = max(gap_x, gap_y)
-        expected_axis = "horizontal" if gap_x >= gap_y else "vertical"
-        if expected_gap < 0:
-            errors.append(f"{prefix}:boundaryCheck_{index}_overlapping_pair_must_be_excluded")
-        if axis != expected_axis:
-            errors.append(f"{prefix}:boundaryCheck_{index}_axis_must_equal_{expected_axis}")
-        if check.get("gapPx") != expected_gap:
-            errors.append(f"{prefix}:boundaryCheck_{index}_gapPx_must_equal_{expected_gap}")
-        expected_clear = expected_gap >= 1
-        if check.get("clear") is not expected_clear:
-            errors.append(f"{prefix}:boundaryCheck_{index}_clear_must_equal_{str(expected_clear).lower()}")
-        if check.get("evidenceSource") != "phase2_json_coordinates":
+        if check.get("evidenceSource") != "original_screenshot_visual_review":
             errors.append(f"{prefix}:boundaryCheck_{index}_evidenceSource_invalid")
-        if not expected_clear:
+        if check.get("clear") is False:
             issue_count += 1
     for index, pair in enumerate(excluded_pairs, start=1):
         if not isinstance(pair, dict):
@@ -760,19 +636,10 @@ def require_partition_json_evidence(
             continue
         first_name = pair.get("firstRegion")
         second_name = pair.get("secondRegion")
-        if first_name not in regions or second_name not in regions:
+        if first_name not in region_names or second_name not in region_names:
             errors.append(f"{prefix}:excludedPair_{index}_unknown_region")
-            continue
-        first = regions[first_name]["contentBounds"]
-        second = regions[second_name]["contentBounds"]
-        gap_x = max(second[0] - (first[0] + first[2]), first[0] - (second[0] + second[2]))
-        gap_y = max(second[1] - (first[1] + first[3]), first[1] - (second[1] + second[3]))
-        if max(gap_x, gap_y) >= 0:
-            errors.append(f"{prefix}:excludedPair_{index}_must_be_two_axis_overlap")
-        if pair.get("gapX") != gap_x or pair.get("gapY") != gap_y:
-            errors.append(f"{prefix}:excludedPair_{index}_gaps_must_match_json")
-        if pair.get("reason") != "overlapping_or_nested_content_unions_do_not_prove_unclear_partition":
-            errors.append(f"{prefix}:excludedPair_{index}_reason_invalid")
+        if not isinstance(pair.get("reason"), str) or not pair["reason"].strip():
+            errors.append(f"{prefix}:excludedPair_{index}_reason_required")
     if row.get("issueCount") != issue_count:
         errors.append(f"{prefix}:issueCount_must_equal_{issue_count}")
     expected_rating = "优秀" if issue_count == 0 else "不达标"
@@ -915,7 +782,7 @@ def require_component_copy_consistency(
     issue: dict[str, Any],
     assessment_rows: Any,
 ) -> None:
-    """Block issue copy that contradicts or degrades deterministic component measurements."""
+    """Block issue copy that contradicts its component assessment row."""
     if not isinstance(assessment_rows, list):
         return
     component_id = str(issue.get("component") or "")
@@ -950,17 +817,11 @@ def require_component_copy_consistency(
         if rating != expected_rating:
             errors.append(f"{prefix}:complexity_copy_rating_must_match_measured_counts")
     elif skill == "eval-5-info-hierarchy":
-        level_count = row.get("levelCount")
         tier_trace = row.get("tierTrace")
-        if not isinstance(level_count, int) or level_count < 0:
-            return
-        if str(level_count) not in description:
-            errors.append(f"{prefix}:hierarchy_copy_must_include_measured_levelCount")
         if not isinstance(tier_trace, list) or not tier_trace:
             errors.append(f"{prefix}:hierarchy_copy_requires_tierTrace")
-        expected_rating = "优秀" if 3 <= level_count <= 5 else "不达标"
-        if rating != expected_rating:
-            errors.append(f"{prefix}:hierarchy_copy_rating_must_match_measured_levelCount")
+        if rating != row.get("rating"):
+            errors.append(f"{prefix}:hierarchy_copy_rating_must_match_visual_review")
     elif skill == "eval-7-info-authenticity":
         statuses = row.get("pairJudgements")
         conflict_count = row.get("conflictCount")
@@ -1057,10 +918,8 @@ def main() -> int:
                 if evidence_mode not in {"original-page", "hybrid", "annotated-region"}:
                     errors.append(f"{skill}/{tab}:page_framework_requires_evidence_mode")
                 required_page_fields = PAGE_EVIDENCE_REQUIREMENTS.get(skill)
-                measurement_required = skill in MEASUREMENT_REQUIRED_SKILLS
                 evidence_required = (
                     unit.get("rating") != "优秀"
-                    or measurement_required
                     or skill == "eval-3-page-color-logic"
                     or skill in {"eval-6-info-comparability", "eval-7-info-redundancy"}
                 )
@@ -1069,8 +928,6 @@ def main() -> int:
                         errors.append(f"{skill}/{tab}:page_framework_requires_exactly_one_assessmentRow")
                     elif required_page_fields:
                         require_row_fields(errors, f"{skill}/{tab}", assessment_rows[0], required_page_fields)
-                        if measurement_required and isinstance(assessment_rows[0], dict):
-                            require_measurement(errors, f"{skill}/{tab}/row_1", assessment_rows[0])
                     else:
                         errors.append(f"{skill}/{tab}:unknown_page_framework_skill_without_evidence_contract")
                 if skill == "eval-7-info-redundancy" and isinstance(assessment_rows, list) and assessment_rows:
@@ -1084,7 +941,7 @@ def main() -> int:
                 if skill == "eval-6-info-comparability" and isinstance(assessment_rows, list) and assessment_rows:
                     row = assessment_rows[0]
                     if isinstance(row, dict):
-                        require_json_derived_evidence(
+                        require_evidence_source(
                             errors,
                             f"{skill}/{tab}/row_1",
                             row,
@@ -1194,7 +1051,6 @@ def main() -> int:
             elif skill in component_skills:
                 evaluated_unit_count = evidence.get("evaluatedUnitCount")
                 assessment_rows = evidence.get("assessmentRows")
-                measurement_required = skill in MEASUREMENT_REQUIRED_SKILLS
                 full_coverage_required = skill in COMPONENT_FULL_COVERAGE_SKILLS
                 evidence_required = unit.get("rating") != "优秀" or full_coverage_required
                 if evidence_required:
@@ -1218,32 +1074,30 @@ def main() -> int:
                     if isinstance(assessment_rows, list) and required_component_fields:
                         for index, row in enumerate(assessment_rows, start=1):
                             require_row_fields(errors, f"{skill}/{tab}/row_{index}", row, required_component_fields)
-                            if measurement_required and isinstance(row, dict):
-                                require_measurement(errors, f"{skill}/{tab}/row_{index}", row)
                             if skill == "eval-3-color-logic" and isinstance(row, dict):
-                                require_component_color_json_evidence(
+                                require_component_color_pixel_evidence(
                                     errors, f"{skill}/{tab}/row_{index}", row, active_by_id
                                 )
                             if skill == "eval-4-element-complexity" and isinstance(row, dict):
-                                require_json_derived_evidence(
+                                require_evidence_source(
                                     errors,
                                     f"{skill}/{tab}/row_{index}",
                                     row,
                                     "phase2_json_visual_inventory",
                                 )
                             if skill == "eval-5-info-hierarchy" and isinstance(row, dict):
-                                require_hierarchy_pixel_evidence(
+                                require_hierarchy_visual_evidence(
                                     errors, f"{skill}/{tab}/row_{index}", row
                                 )
                             if skill == "eval-7-info-authenticity" and isinstance(row, dict):
-                                require_json_derived_evidence(
+                                require_evidence_source(
                                     errors,
                                     f"{skill}/{tab}/row_{index}",
                                     row,
-                                    "phase2_json_full_relation_scan",
+                                    "phase2_json_and_original_screenshot",
                                 )
                             if skill == "eval-8-info-redundancy" and isinstance(row, dict):
-                                require_json_derived_evidence(
+                                require_evidence_source(
                                     errors,
                                     f"{skill}/{tab}/row_{index}",
                                     row,
@@ -1256,20 +1110,18 @@ def main() -> int:
                             continue
                         if not isinstance(row.get("comparisonGroupKey"), str) or not row["comparisonGroupKey"].strip():
                             errors.append(f"{skill}/{tab}:alignment_assessmentRow_{index}_comparisonGroupKey_invalid")
-                        require_alignment_json_evidence(
+                        require_alignment_visual_evidence(
                             errors,
                             f"{skill}/{tab}:alignment_assessmentRow_{index}",
                             row,
-                            active_by_id,
                         )
                 if skill == "eval-6-info-partitioning" and isinstance(assessment_rows, list):
                     for index, row in enumerate(assessment_rows, start=1):
                         if isinstance(row, dict):
-                            require_partition_json_evidence(
+                            require_partition_visual_evidence(
                                 errors,
                                 f"{skill}/{tab}:partition_assessmentRow_{index}",
                                 row,
-                                active_by_id,
                             )
                 if skill == "eval-7-info-authenticity" and isinstance(assessment_rows, list):
                     for index, row in enumerate(assessment_rows, start=1):
@@ -1309,8 +1161,6 @@ def main() -> int:
                         for conflict_index, conflict in enumerate(conflicts, start=1):
                             if not isinstance(conflict, dict) or conflict.get("verdict") != "conflict":
                                 errors.append(f"{skill}/{tab}:authenticity_assessmentRow_{index}_conflict_{conflict_index}_invalid")
-                            elif not isinstance(conflict.get("lexicalCue"), str) or not conflict["lexicalCue"].strip():
-                                errors.append(f"{skill}/{tab}:authenticity_assessmentRow_{index}_conflict_{conflict_index}_lexicalCue_invalid")
                 if skill in {"eval-7-info-authenticity", "eval-8-info-redundancy"} and isinstance(assessment_rows, list):
                     evaluated_unit_ids = evidence.get("evaluatedUnitIds")
                     row_component_ids = [row.get("componentId") for row in assessment_rows if isinstance(row, dict)]

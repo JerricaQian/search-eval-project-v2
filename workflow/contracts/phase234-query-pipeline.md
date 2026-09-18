@@ -82,7 +82,9 @@ description: 单搜索词 Phase2→Phase3→Phase4 最终流水线；统一卡�
 
 所有最终 Stage A manifest 发布后，逐一读取 task.requiredReads 中的共同知识、维度 contract 和选中 leaf skills。`task.evalTargets` 是唯一可评测集合；所有 skill 通过 `phase2_bundle_loader.py` 只读正式 manifest。
 
-先对全部最终 manifest 一次性运行按需测量准备：
+Phase2 A2 已在当前同一 Agent 中读取过每张完整原图。进入 Phase3 后，对所选视觉类 Skill 复用这份当前图上下文，按截图完成一次共享视觉判断轮次，再把同一轮观察分别写入各叶子 Skill 的既有 `assessmentRows`；不得为此新建视觉中间 JSON。长图或局部不确定时可以复看有界区域，但不得把视觉判断倒灌为 Phase2 事实。
+
+先对全部最终 manifest 一次性运行按需确定性测量准备：
 
 ```bash
 "${pythonBin}" "${projectDir}/workflow/prepare_phase3_measurements.py" \
@@ -91,7 +93,7 @@ description: 单搜索词 Phase2→Phase3→Phase4 最终流水线；统一卡�
   --output-dir "<stagePaths.measurementsDir>"
 ```
 
-只有 `phase3_measurement_requirements.json` 为已选 skill 声明的脚本可以重新读原图。测量不得倒灌 Phase2；JSON-only skill 禁止回看截图补写事实。缺少未注册的精确测量时写明确 review 项，不能伪造数值，也不能因此阻断其他可评 skill。
+只有 `phase3_measurement_requirements.json` 为已选 skill 声明的确定性脚本可以读原图像素。脚本测量不得倒灌 Phase2；JSON 类 Skill 禁止回看截图补写结构化事实。视觉类 Skill 的感知判断由当前 Evaluation Agent 完成，不登记为测量脚本。缺少未注册的精确测量时写明确 review 项，不能伪造数值，也不能因此阻断其他可评 skill。
 
 按每个 leaf skill 生成完整 `assessmentRows`/issues 后，写入 `<stagePaths.evalResultFile>`，再运行：
 

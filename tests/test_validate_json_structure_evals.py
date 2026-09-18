@@ -27,38 +27,30 @@ class ValidateJsonStructureEvalsTest(unittest.TestCase):
     def setUp(self) -> None:
         self.module = load_module()
 
-    def test_partition_positive_json_gap_is_clear_without_pixel_measurement(self) -> None:
-        active = {
-            "L1": {"coord": [10, 10, 100, 20]},
-            "T1": {"coord": [10, 40, 80, 20]},
-        }
+    def test_partition_visual_review_can_be_clear_even_when_geometry_touches(self) -> None:
         row = {
-            "evidenceSource": "phase2_json_coordinates",
+            "evidenceSource": "original_screenshot_visual_review",
             "partitions": [
                 {"region": "location", "elementIds": ["L1"], "contentBounds": [10, 10, 100, 20]},
-                {"region": "tags", "elementIds": ["T1"], "contentBounds": [10, 40, 80, 20]},
+                {"region": "tags", "elementIds": ["T1"], "contentBounds": [10, 30, 80, 20]},
             ],
             "adjacentBoundaryChecks": [{
                 "firstRegion": "location",
                 "secondRegion": "tags",
                 "axis": "vertical",
-                "gapPx": 10,
+                "gapPx": 0,
                 "clear": True,
-                "evidenceSource": "phase2_json_coordinates",
+                "evidenceSource": "original_screenshot_visual_review",
             }],
             "excludedPairs": [],
             "issueCount": 0,
             "rating": "优秀",
         }
         errors: list[str] = []
-        self.module.require_partition_json_evidence(errors, "eval-6/C1", row, active)
+        self.module.require_partition_visual_evidence(errors, "eval-6/C1", row)
         self.assertEqual(errors, [])
 
-    def test_partition_rejects_relative_gap_or_pixel_measurement(self) -> None:
-        active = {
-            "L1": {"coord": [10, 10, 100, 20]},
-            "T1": {"coord": [10, 40, 80, 20]},
-        }
+    def test_partition_rejects_invalid_source_and_issue_count(self) -> None:
         row = {
             "evidenceSource": "phase2_json_coordinates",
             "partitions": [
@@ -70,23 +62,19 @@ class ValidateJsonStructureEvalsTest(unittest.TestCase):
                 "gapPx": 15, "clear": False, "evidenceSource": "phase2_json_coordinates",
             }],
             "excludedPairs": [],
-            "issueCount": 1,
+            "issueCount": 0,
             "rating": "不达标",
             "measurement": {"tool": "forbidden"},
         }
         errors: list[str] = []
-        self.module.require_partition_json_evidence(errors, "eval-6/C1", row, active)
-        self.assertTrue(any("pixel_measurement_forbidden" in error for error in errors))
-        self.assertTrue(any("gapPx_must_equal_10" in error for error in errors))
-        self.assertTrue(any("clear_must_equal_true" in error for error in errors))
+        self.module.require_partition_visual_evidence(errors, "eval-6/C1", row)
+        self.assertTrue(any("evidenceSource_must_be_original_screenshot_visual_review" in error for error in errors))
+        self.assertTrue(any("issueCount_must_equal_1" in error for error in errors))
+        self.assertFalse(any("gapPx_must_equal" in error for error in errors))
 
     def test_partition_overlapping_unions_are_excluded_not_failed(self) -> None:
-        active = {
-            "PHOTO": {"coord": [10, 10, 100, 100]},
-            "BADGE_TITLE": {"coord": [90, 10, 100, 30]},
-        }
         row = {
-            "evidenceSource": "phase2_json_coordinates",
+            "evidenceSource": "original_screenshot_visual_review",
             "partitions": [
                 {"region": "head_media", "elementIds": ["PHOTO"], "contentBounds": [10, 10, 100, 100]},
                 {"region": "title", "elementIds": ["BADGE_TITLE"], "contentBounds": [90, 10, 100, 30]},
@@ -95,45 +83,29 @@ class ValidateJsonStructureEvalsTest(unittest.TestCase):
             "excludedPairs": [{
                 "firstRegion": "head_media", "secondRegion": "title",
                 "gapX": -20, "gapY": -30,
-                "reason": "overlapping_or_nested_content_unions_do_not_prove_unclear_partition",
+                "reason": "图片角标属于合法父子覆盖关系",
             }],
             "issueCount": 0,
             "rating": "优秀",
         }
         errors: list[str] = []
-        self.module.require_partition_json_evidence(errors, "eval-6/C1", row, active)
+        self.module.require_partition_visual_evidence(errors, "eval-6/C1", row)
         self.assertEqual(errors, [])
 
-    def test_alignment_relations_are_recomputed_from_json_coordinates(self) -> None:
-        active = {
-            "C1-H": {"coord": [0, 0, 80, 120]},
-            "C1-T": {"coord": [100, 0, 100, 30]},
-            "C1-P": {"coord": [100, 80, 100, 30]},
-            "C2-H": {"coord": [0, 150, 80, 120]},
-            "C2-T": {"coord": [100, 150, 100, 30]},
-            "C2-P": {"coord": [100, 230, 100, 30]},
-        }
-
-        def signature(card: str, offset: int) -> dict:
+    def test_alignment_uses_visual_attention_status_not_coordinate_recomputation(self) -> None:
+        def signature(card: str) -> dict:
             return {
                 "componentId": card,
                 "layoutMode": "左图右文",
-                "layoutSignature": "head_media:left_of:title;title:above:price",
-                "regions": [
-                    {"region": "head_media", "elementIds": [f"{card}-H"], "contentBounds": [0, offset, 80, 120]},
-                    {"region": "title", "elementIds": [f"{card}-T"], "contentBounds": [100, offset, 100, 30]},
-                    {"region": "price", "elementIds": [f"{card}-P"], "contentBounds": [100, offset + 80, 100, 30]},
-                ],
-                "relations": [
-                    {"fromRegion": "head_media", "toRegion": "title", "relation": "left_of"},
-                    {"fromRegion": "title", "toRegion": "price", "relation": "above"},
-                ],
+                "layoutSignature": "expected:title→decision→support;observed:title→decision→support",
+                "regions": ["title", "decision", "support"],
+                "relations": ["title_before_decision", "decision_before_support"],
             }
 
         row = {
-            "evidenceSource": "phase2_json_coordinates",
+            "evidenceSource": "original_screenshot_visual_review",
             "members": ["C1", "C2"],
-            "layoutSignatures": [signature("C1", 0), signature("C2", 150)],
+            "layoutSignatures": [signature("C1"), signature("C2")],
             "readingOrderChecks": [
                 {"componentId": "C1", "regionOrder": ["head_media", "title", "price"], "status": "consistent"},
                 {"componentId": "C2", "regionOrder": ["head_media", "title", "price"], "status": "consistent"},
@@ -141,13 +113,48 @@ class ValidateJsonStructureEvalsTest(unittest.TestCase):
             "rating": "优秀",
         }
         errors: list[str] = []
-        self.module.require_alignment_json_evidence(errors, "eval-2/group", row, active)
+        self.module.require_alignment_visual_evidence(errors, "eval-2/group", row)
         self.assertEqual(errors, [])
 
-    def test_component_colour_is_validated_from_json_evidence_without_measurement(self) -> None:
+    def test_alignment_inversion_requires_fail_rating(self) -> None:
+        row = {
+            "evidenceSource": "original_screenshot_visual_review",
+            "members": ["C1"],
+            "layoutSignatures": [{
+                "componentId": "C1",
+                "layoutMode": "左图右文",
+                "layoutSignature": "auxiliary badge overrides identity",
+                "regions": ["identity", "decision", "support"],
+                "relations": ["badge_before_identity"],
+            }],
+            "readingOrderChecks": [{
+                "componentId": "C1",
+                "regionOrder": ["badge", "title", "price"],
+                "status": "inversion",
+            }],
+            "rating": "不达标",
+        }
+        errors: list[str] = []
+        self.module.require_alignment_visual_evidence(errors, "eval-2/group", row)
+        self.assertEqual(errors, [])
+
+    def test_hierarchy_level_count_is_descriptive_not_a_rating_formula(self) -> None:
+        row = {
+            "componentId": "C1",
+            "sourceElements": [{"elementId": "E1", "visualRole": "identity"}],
+            "weightSequence": ["E1"],
+            "tierTrace": ["身份层", "决策层"],
+            "levelCount": 2,
+            "rating": "优秀",
+        }
+        errors: list[str] = []
+        self.module.require_hierarchy_visual_evidence(errors, "eval-5/C1", row)
+        self.assertEqual(errors, [])
+
+    def test_component_colour_is_validated_from_pixel_evidence(self) -> None:
         active = {"E1": {"coord": [0, 0, 20, 20]}, "E2": {"coord": [20, 0, 20, 20]}}
         row = {
-            "evidenceSource": "phase2_json_visual_colors",
+            "evidenceSource": "original_screenshot_pixels",
             "scannedElementIds": ["E1"],
             "excludedElementIds": ["E2"],
             "sourceColorValues": [
@@ -158,14 +165,14 @@ class ValidateJsonStructureEvalsTest(unittest.TestCase):
             "rating": "优秀",
         }
         errors: list[str] = []
-        self.module.require_component_color_json_evidence(errors, "eval-3/C1", row, active)
+        self.module.require_component_color_pixel_evidence(errors, "eval-3/C1", row, active)
         self.assertEqual(errors, [])
 
     def test_component_colour_four_families_is_excellent(self) -> None:
         active = {f"E{index}": {"coord": [index * 20, 0, 20, 20]} for index in range(1, 5)}
         families = ["红", "黄", "绿", "蓝"]
         row = {
-            "evidenceSource": "phase2_json_visual_colors",
+            "evidenceSource": "original_screenshot_pixels",
             "scannedElementIds": list(active),
             "excludedElementIds": [],
             "sourceColorValues": [
@@ -177,10 +184,10 @@ class ValidateJsonStructureEvalsTest(unittest.TestCase):
             "rating": "优秀",
         }
         errors: list[str] = []
-        self.module.require_component_color_json_evidence(errors, "eval-3/C4", row, active)
+        self.module.require_component_color_pixel_evidence(errors, "eval-3/C4", row, active)
         self.assertEqual(errors, [])
         row["rating"] = "达标"
-        self.module.require_component_color_json_evidence(errors, "eval-3/C4", row, active)
+        self.module.require_component_color_pixel_evidence(errors, "eval-3/C4", row, active)
         self.assertTrue(any("rating_must_be_优秀" in error for error in errors))
 
     def test_issue_description_requires_a_readable_card_or_component_location(self) -> None:
@@ -209,7 +216,7 @@ class ValidateJsonStructureEvalsTest(unittest.TestCase):
             artifact = Path(tmp) / "component-color-families.json"
             artifact.write_text("{}", encoding="utf-8")
             row = {
-                "colorLogicContractVersion": "3.0",
+                "colorLogicContractVersion": "4.0",
                 "componentColorArtifact": str(artifact),
                 "componentColorSummaries": [
                     {"componentId": "C1", "colorFamilies": ["红", "蓝", "黄"], "colorFamilyCount": 3},
@@ -217,7 +224,7 @@ class ValidateJsonStructureEvalsTest(unittest.TestCase):
                 ],
                 "colorFamilies": ["红", "蓝", "黄", "橙", "绿"],
                 "colorFamilyCount": 5,
-                "evidenceSource": "component_color_family_aggregation",
+                "evidenceSource": "component_pixel_color_aggregation",
                 "rating": "优秀",
             }
             errors: list[str] = []
@@ -230,14 +237,14 @@ class ValidateJsonStructureEvalsTest(unittest.TestCase):
             artifact.write_text("{}", encoding="utf-8")
             families = ["红", "橙", "黄", "绿", "青", "蓝", "紫"]
             row = {
-                "colorLogicContractVersion": "3.0",
+                "colorLogicContractVersion": "4.0",
                 "componentColorArtifact": str(artifact),
                 "componentColorSummaries": [
                     {"componentId": "C1", "colorFamilies": families, "colorFamilyCount": 7},
                 ],
                 "colorFamilies": families,
                 "colorFamilyCount": 7,
-                "evidenceSource": "component_color_family_aggregation",
+                "evidenceSource": "component_pixel_color_aggregation",
                 "rating": "不达标",
             }
             errors: list[str] = []
@@ -258,7 +265,7 @@ class ValidateJsonStructureEvalsTest(unittest.TestCase):
             "measurement": {"tool": "obsolete"},
         }
         errors: list[str] = []
-        self.module.require_json_derived_evidence(
+        self.module.require_evidence_source(
             errors, "eval-6/page", row, "phase2_json_cross_card_comparison"
         )
         self.assertTrue(any("measurement_forbidden" in error for error in errors))

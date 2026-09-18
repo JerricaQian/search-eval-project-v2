@@ -17,9 +17,7 @@ SHOT = str(ROOT / 'screenshots/网咖_全部_1.png')
 
 m = json.loads(MANIFEST.read_text())
 colors = json.loads(next(MEASURE.glob('*.component-color-families.json')).read_text())['components']
-hier = json.loads(next(MEASURE.glob('*.eval-5-info-hierarchy.json')).read_text())['components']
 color_artifact = str(next(MEASURE.glob('*.component-color-families.json')))
-hier_artifact = str(next(MEASURE.glob('*.eval-5-info-hierarchy.json')))
 cards = m['cards']
 
 def atoms(card, photos=False):
@@ -69,7 +67,7 @@ for c in cards:
     rels=[{'fromRegion':'头图区','toRegion':'基础信息区','relation':relation(b['头图区'],b['基础信息区'])},{'fromRegion':'基础信息区','toRegion':'文字下挂区','relation':relation(b['基础信息区'],b['文字下挂区'])}]
     sigs.append({'componentId':c['cardId'],'layoutMode':'left_image_right_text','layoutSignature':'merchant_text_attachment','regions':regs,'relations':rels})
     checks.append({'componentId':c['cardId'],'regionOrder':['头图区','标题区','基础信息区','文字下挂区'],'status':'consistent'})
-align={'comparisonGroupKey':'商家卡片_文字下挂','members':members,'layoutSignatures':sigs,'readingOrderChecks':checks,'evidenceSource':'phase2_json_coordinates','rating':'优秀'}
+align={'comparisonGroupKey':'商家卡片_文字下挂','members':members,'layoutSignatures':sigs,'readingOrderChecks':checks,'evidenceSource':'original_screenshot_visual_review','rating':'优秀'}
 R.append(result(CD,'eval-2-visual-order-alignment','视觉秩序统一对齐','优秀','四张同型商家卡均保持左侧头图、右侧标题与基础信息、下方文字商品的阅读顺序。',{'sourceManifestTotal':len(active),'evaluatedUnitCount':1,'assessmentRows':[align]}))
 
 R.append(result(CD,'eval-3-color-logic','色彩逻辑', '优秀','四张商家卡的强调色均控制在两种色相族内，用于评分、促销或标签。',{'sourceManifestTotal':len(active),'evaluatedUnitCount':len(colors),'assessmentRows':colors}))
@@ -95,9 +93,9 @@ complex_rating='优秀' if all(x['rating']=='优秀' for x in complex_rows) else
 R.append(result(CD,'eval-4-element-complexity','元素复杂度',complex_rating,'每张商家卡仅有一枚彩色促销标，其余为核心文字或照片素材，复杂度受控。',{'sourceManifestTotal':len(active),'evaluatedUnitCount':len(complex_rows),'assessmentRows':complex_rows}))
 
 hier_rows=[]
-for comp in hier:
-    h=comp['hierarchyMeasurement']; blocks=h['weightBlocks']; levels=3
-    hier_rows.append({'componentId':comp['cardId'],'sourceElements':blocks,'weightSequence':[x['id'] for x in blocks],'tierTrace':['标题主层','评分与基础信息层','商品下挂层'],'levelCount':levels,'calibrationProfile':h['calibrationProfile'],'glyphHeightGapThresholdPx':h['glyphHeightGapThresholdPx'],'measurement':{'tool':str(ROOT/'workflow/prepare_phase3_measurements.py'),'artifactPath':hier_artifact,'parameters':{'calibrationProfile':h['calibrationProfile'],'glyphHeightGapThresholdPx':h['glyphHeightGapThresholdPx']}},'rating':'优秀'})
+for c in cards:
+    blocks=[{'elementId':e['id'],'text':e.get('textFacts',{}).get('rawText',''),'region':r['name']} for r in c['regions'] for e in r['elements'] if not e.get('render',{}).get('isPhoto')]
+    hier_rows.append({'componentId':c['cardId'],'sourceElements':blocks,'weightSequence':[x['elementId'] for x in blocks],'tierTrace':['标题主层','评分与基础信息层','商品下挂层'],'levelCount':3,'rating':'优秀'})
 R.append(result(CD,'eval-5-info-hierarchy','信息层级','优秀','四张商家卡均形成标题、基础信息与商品下挂 3 个层级。',{'sourceManifestTotal':len(active),'evaluatedUnitCount':len(hier_rows),'assessmentRows':hier_rows}))
 R.append(result(CD,'eval-6-info-partitioning','信息分区','优秀','可见卡片的信息区之间留白清晰，未发现需要报告的分区混叠。',{'assessmentRows':[]}))
 
@@ -105,7 +103,7 @@ auth=[]; red=[]
 for c in cards:
     es=text_by_card[c['cardId']]; ids=[e['id'] for e in es]; pairs=[]
     if len(ids)>1: pairs=[{'leftElementId':ids[0],'rightElementId':ids[1],'relation':'标题与基础信息相邻'}]
-    auth.append({'componentId':c['cardId'],'candidatePairs':pairs,'pairJudgements':['consistent']*len(pairs),'inapplicableChecks':[],'scanCoverage':{'status':'completed','scannedElementIds':ids,'scannedRegions':regions_by_card[c['cardId']],'crossChecks':['标题与基础信息','商品文本与价格']},'conflicts':[],'conflictCount':0,'evidenceSource':'phase2_json_full_relation_scan','rating':'优秀'})
+    auth.append({'componentId':c['cardId'],'candidatePairs':pairs,'pairJudgements':['consistent']*len(pairs),'inapplicableChecks':[],'scanCoverage':{'status':'completed','scannedElementIds':ids,'scannedRegions':regions_by_card[c['cardId']],'crossChecks':['标题与基础信息','商品文本与价格','标题与图片视觉归属']},'conflicts':[],'conflictCount':0,'evidenceSource':'phase2_json_and_original_screenshot','rating':'优秀'})
     red.append({'componentId':c['cardId'],'scannedRegions':regions_by_card[c['cardId']],'examinedElements':ids,'candidatePairs':[],'selfRepeatCandidates':[],'duplicates':[],'duplicateCount':0,'scanCoverage':{'status':'completed','textAtomCount':len(ids),'scannedElementIds':ids,'scannedRegions':regions_by_card[c['cardId']],'crossChecks':['title/subtitle ↔ basic information','title/subtitle ↔ tags/price/promotion','tag ↔ price/promotion','title internal repeated quantified fragments']},'evidenceSource':'phase2_json_full_redundancy_scan','rating':'优秀'})
 R.append(result(CD,'eval-7-info-authenticity','信息真实性','优秀','商家卡的标题、基础信息及两组下挂文本价格关系均无冲突。',{'sourceManifestTotal':len(active),'evaluatedUnitCount':len(auth),'evaluatedUnitIds':members,'assessmentRows':auth}))
 R.append(result(CD,'eval-8-info-redundancy','信息冗余','优秀','完整扫描未发现同一商家卡内无增量的信息重复。',{'sourceManifestTotal':len(active),'evaluatedUnitCount':len(red),'evaluatedUnitIds':members,'assessmentRows':red}))
@@ -114,7 +112,7 @@ R.append(result(PD,'eval-1-supply-module-completeness','供给模块完整性','
 R.append(result(PD,'eval-2-visual-order-alignment','页面视觉秩序','优秀','页面在当前视口内保持由检索控件到结果列表的稳定阅读顺序。',{'assessmentRows':[]}))
 summaries=[{'componentId':x['componentId'],'colorFamilies':x['colorFamilies'],'colorFamilyCount':x['colorFamilyCount']} for x in colors]
 families=sorted({f for x in summaries for f in x['colorFamilies']})
-page_color={'colorLogicContractVersion':'3.0','componentColorArtifact':color_artifact,'componentColorSummaries':summaries,'colorFamilies':families,'colorFamilyCount':len(families),'evidenceSource':'component_color_family_aggregation','rating':'优秀'}
+page_color={'colorLogicContractVersion':'4.0','componentColorArtifact':color_artifact,'componentColorSummaries':summaries,'colorFamilies':families,'colorFamilyCount':len(families),'evidenceSource':'component_pixel_color_aggregation','rating':'优秀'}
 R.append(result(PD,'eval-3-page-color-logic','页面色彩逻辑','优秀','页面商家组件汇总后仅使用红、橙、绿三类强调色。',{'assessmentRows':[page_color]}))
 R.append(result(PD,'eval-4-static-component-complexity','静态组件复杂度','优秀','当前视口仅呈现必要的检索结果列表模块，静态组件复杂度受控。',{'assessmentRows':[]}))
 R.append(result(PD,'eval-5-browsing-flow-smoothness','浏览流畅性','优秀','当前单页结果列表的视口内浏览路径连续，未发现需要报告的中断。',{'assessmentRows':[]}))

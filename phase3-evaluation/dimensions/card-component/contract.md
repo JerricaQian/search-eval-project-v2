@@ -11,7 +11,7 @@ description: phase3-card_or_component-eval 维度 8 个 eval skill 共享的"三
 
 执行本维度任一 Skill 前，必须先完整读取 Phase3 [知识索引](../../common/references/knowledge-index.md)、本共享契约，再读当前 Skill。知识索引中的卡片规范用于按已确认卡型/变体建立适用槽位、实体层和同类比较组；可选槽位或未确认字段不能由设计样板补写。
 
-所有 Skill 共用同一执行协议：1) **读取 Phase2 JSON，确定评测目标**；2) 按**先排除→再成立→最后例外**把每个组件、区域或比较组归入可评、排除或复核，三类必须互斥且覆盖当前 Skill 的目标全集；3) 执行专属核查、关系终判或确定性测量；4) 校验覆盖，复核项先停止对应单位评级，只要该单位可能改变 Tab 聚合结果就同时停止 Tab 正式评级；5) 按叶子 Skill 阈值评级并把非优秀问题行一对一投影为 issue。目标集合与覆盖分流是执行时状态，**直接从当前 Phase2 JSON 派生，不复制原清单、不另建第二份全量账本**；只有问题行、复核项和当前 Skill 明确要求的测量/全覆盖证据需要进入输出。自然裁切等已明确排除对象不构成复核阻断。叶子 Skill 的“评审流程”只展开专属动作，不再复制本段通用文案。
+所有 Skill 共用同一执行协议：1) **读取 Phase2 JSON，确定对象、语义与评测目标**；2) 按**先排除→再成立→最后例外**把每个组件、区域或比较组归入可评、排除或复核，三类必须互斥且覆盖当前 Skill 的目标全集；3) 按叶子 Skill 声明选择 JSON、共享原图观察或确定性像素测量；4) 校验覆盖，复核项先停止对应单位评级，只要该单位可能改变 Tab 聚合结果就同时停止 Tab 正式评级；5) 按叶子 Skill 阈值评级并把非优秀问题行一对一投影为 issue。目标集合与覆盖分流直接从当前 Phase2 JSON 派生，不复制原清单、不另建第二份全量账本；视觉观察直接进入现有评测行，不生成中间视觉 JSON。自然裁切等已明确排除对象不构成复核阻断。
 
 ## 三档解释与证据展示契约
 
@@ -66,9 +66,9 @@ description: phase3-card_or_component-eval 维度 8 个 eval skill 共享的"三
 - `issues` 必须引用当前清单中真实的 `elementId`、`coord` 与所属 `component`；原文从 `assessmentRows` 与 Phase2 清单追溯，不在 issue 重复保存。
 
 **【技能专属，SKILL.md 自行定义，差异较大，不可归并】**
-- **结果证据门槛**：每个 skill 对 `assessmentRows` 的必填字段、覆盖范围（是否含优秀）、`evidence.evaluatedUnitCount` 校验方式完全不同（如 eval-3/eval-4 保留 JSON 全量遍历与去重证据；eval-2/eval-6 保留 Phase2 JSON 结构或坐标证据；eval-5 额外要求校准后的 `glyphHeightPx` 测量及 `measurement.tool/artifactPath/parameters`；eval-7/eval-8 要求全量 JSON 关系扫描；eval-1 有独立双重证据门槛）。
+- **结果证据门槛**：每个 skill 对 `assessmentRows` 的必填字段、覆盖范围（是否含优秀）、`evidence.evaluatedUnitCount` 校验方式完全不同。eval-2/eval-5/eval-6 保留共享原图观察与对象覆盖，eval-3 保留组件像素色系产物，eval-4/eval-8 保留 JSON 全量遍历，eval-7 同时保留 JSON 语义核查和原图视觉关系核查，eval-1 保留独立双重证据门槛。
 - **Phase2 基础事实优先**：只点名本 Skill 依赖的原子边界/类型/归属/坐标、`render`/`textFacts`/`structure`/`visual` 等基础事实；候选组合、关系比较、样式去重与计数必须由 Phase3 完成。
-- **确定性像素测量优先**（仅 eval-5）：商卡视觉层级必须以 `--skill eval-5-info-hierarchy` 运行 `skills/eval-5-info-hierarchy/scripts/extract_component_metrics.py` 的 `hierarchy_only` 分支，得到校准后的 `glyphHeightPx`；颜色强调仍读 JSON，LLM 不得目视改写。eval-2/eval-3/eval-4/eval-6/eval-7/eval-8 只读取 loader 校验后的 Phase2 JSON 结构、坐标、样式色值或语义原子，不运行像素脚本。eval-7/eval-8 可使用 `scripts/extract_phase3_relation_candidates.py` 的纯 JSON 语义关系辅助器补齐确定性单位/数值线索，但必须保留全量遍历，禁止把候选为空当作优秀证明。
+- **判断源分工**：eval-2、eval-5、eval-6 以及 eval-7 的视觉关系部分复用当前截图的一次共享原图观察；eval-3 使用唯一组件像素色彩产物；eval-1、eval-4、eval-8 与 eval-7 的文字/数值逻辑继续读取 JSON。`extract_phase3_relation_candidates.py` 仍可为 eval-7/eval-8 提供纯 JSON 语义候选，但不能缩减完整遍历。任何原图判断都不得改变 Phase2 的对象、语义、归属或边界。
 - eval-8 额外有"重建不等于重评""历史问题不默认失效""证据先于结论""商卡核查焦点与语义角色门槛"等专属治理规则，不适用于其他 skill。
 
 ## 评级与 Phase5 交接
