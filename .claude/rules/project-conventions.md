@@ -20,12 +20,12 @@ globs: "**/*.js", "**/*.sh", "**/*.py", "**/*.json", "**/*.md"
 - 工作流参数：`shotSkillDir`→`phase1-screenshot`、`phase2SkillDir`→`phase2-card-annotation`、`phase3SkillDir`→`phase3-evaluation`、`issueEvidenceSkillDir`→`phase4-issue-evidence`、`reportSkillDir`→`phase5-report`。新调用用 `evaluationSelection`（`full_19` / `dimensions` / `custom_skills`）选择评测范围；三个 `phase3-*-eval` 字符串是稳定外部 ID，必须通过 `phase3-evaluation/catalog.json` 解析物理目录，禁止直接拼路径。`dimensions` 默认值只保留旧调用兼容。
 - 文档/脚本里若仍见 `screenshot-skill` / `report-skill` / 旧的 Phase3 officer 目录名 / 以外部维度 ID 直接拼物理目录，一律视为陈旧引用。
 
-## 数据流路径：screenshots/ → screenshots-out/ → .artifacts/ → screenshots-out/evidence/ → reports/
+## 数据流路径：screenshots/ → screenshots-out/ → .artifacts/ → reports/
 
 - phase1 截图产物 / phase2 输入：项目根 `screenshots/`
 - phase2 产物（每张截图一个独立元素清单 JSON）：项目根 `screenshots-out/`（**不是** `screenshots/annotated/`，也**不是** skill 内部 `out/`）
 - phase3 原始结果与审计：项目根 `.artifacts/过程文件-评测结果与审计/`
-- phase4 局部问题证据：项目根 `screenshots-out/evidence/`
+- phase4 问题证据：直接回写项目根 `screenshots/` 原图引用，不生成新的图片目录
 - phase5 报告：项目根 `reports/`
 - 工作流参数：`screenshotDir`→`screenshots`、`annotatedDir`→`screenshots-out`、`reportDir`→`reports`。
 

@@ -29,7 +29,7 @@
     "stageC": {
       "type": "object",
       "properties": {
-        "evidenceImages": {"type": "array", "items": {"type": "string"}},
+        "evidenceImages": {"type": "array", "description": "Unique original screenshots/ paths referenced by problem issues", "items": {"type": "string"}},
         "skipped": {"type": "array"}
       }
     },

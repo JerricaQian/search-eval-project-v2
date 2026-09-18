@@ -106,22 +106,22 @@ python3 phase5-report/scripts/import_to_nocode.py <dataset-json> <chat-id>
 - 导入前必须验证：`queryCount == queryDetails` 数量；每个已评测词有原图；证据所属搜索词属于本批；业务 Tab 与同批本地 Phase5 语义聚合结果完全一致。
 - 导入后必须核验新 batch 的业务汇总、67 等实际问题行数、关系、逐词详情和规则行均使用同一个 batch_id；CLI 可读不代表浏览器 anon 可读，必须验证 RLS 只读权限。
 
-## 5. Phase4 证据资源发布
+## 5. Phase4 原图证据资源发布
 
 线上浏览器不能读取本地 `file://`。必须将当前数据集使用的图片上传到 `public/evidence/`。
 
 1. 只提取当前数据集实际引用的 `groups[].evidence[].evidenceImage` 和逐词审计需要的 `queryDetails[].screenshot`；不得混入历史批次资源。
 2. 上传前说明图片数量、绝对路径范围和用途，取得用户同意；每次 `nocode send --images` 最多 5 张。
-3. Phase4 同名文件必须以 `{搜索词}__{原文件名}` 重命名后发布，例如 `西瓜__1_all_issues.png`，防止多个词的 `1_all_issues.png` 覆盖。
+3. 发布副本必须以 `{搜索词}__{原文件名}` 重命名，例如 `西瓜__西瓜_全部_1.png`，防止不同目录或搜索词的同名原图覆盖；本地 `screenshots/` 原文件不得重命名或改写。
 4. 页面通过 `import.meta.env.BASE_URL + 'evidence/' + filename` 引用，不得使用 `file://`、base64、开发机绝对路径或外部不受控 URL。
-5. 图片缺失只能显示明确空态；不得回退到旧批次同名图、原图或自造图片。缩略图与大图均指向同一 Phase4 红框资源，点击新标签打开。
+5. 图片缺失只能显示明确空态；不得回退到旧批次同名图、历史红框图、其他截图或自造图片。缩略图与大图均指向 Phase4 引用的同一张原始截图发布副本，点击新标签打开。
 
 ## 6. 后续批次标准流程
 
 1. 以当前批次隔离 artifact 运行 `phase5-report/scripts/build_experience_dashboard.py`，由当前截图中已验收商卡的可见语义与履约标识推导业务 Tab，同时生成本地 HTML 和 `.governance_dataset_<批次>.json`。可选 `--expected-business-tabs` 只能作为事后断言，不能作为归属依据。
 2. 由生成器按第 2 节优先级算法写入 group/evidence 的 `priority` 与 `priorityReason`；禁止手改 HTML 或 NoCode 数字来改优先级。
-3. 对新数据集校验业务集合、问题级 description/recommendation、Phase4 evidenceImage 和 P0/P1/P2 票数。
-4. 若新增或变化证据图，先取得授权，上传到 `public/evidence/` 并核验文件存在。
+3. 对新数据集校验业务集合、问题级 description/recommendation、Phase4 `evidenceImage` 与所属原图一致，以及 P0/P1/P2 票数。
+4. 若新增或变化原图证据，先取得授权，上传发布副本到 `public/evidence/` 并核验文件存在。
 5. 用 `phase5-report/scripts/import_to_nocode.py` 新建批次并导入；核验返回的真实 batch_id 贯穿所有明细。
 6. 页面默认加载按 `batch_date DESC, id DESC` 排在第一的完整批次；截图核验标题/范围/批次选择器、吸顶一级 Tab、单综合统计卡及两个圆环、四列业务卡、单业务三级明细 Tab、`240px` 自然高度证据布局、默认“全部”问题筛选和 P0/P1/P2 计数；确认页面不显示人工复核提示或记录栏。
 7. 截图通过后执行 `nocode deploy <chatId> --skillId 2981`。部署成功后只能交付 NoCode 对话页或部署 URL，不得给 sandbox render URL。

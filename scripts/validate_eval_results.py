@@ -84,6 +84,24 @@ PROMOTION_PREFIX_PATTERN = re.compile(
 )
 
 
+def require_original_screenshot_evidence(
+    errors: list[str], prefix: str, issue: dict[str, Any], screenshot: Any, element_id: Any
+) -> None:
+    """Require a problem issue to reference its exact existing screenshots/ source."""
+    if issue.get("rating") not in {"🟡", "达标", "🔴", "不达标"}:
+        return
+    evidence_path = issue.get("evidenceImage")
+    if not isinstance(evidence_path, str) or not evidence_path or not Path(evidence_path).is_file():
+        errors.append(f"{prefix}:problem_issue_evidence_image_missing:{element_id}")
+        return
+    resolved_evidence = Path(evidence_path).resolve()
+    if not isinstance(screenshot, str) or resolved_evidence != Path(screenshot).resolve():
+        errors.append(f"{prefix}:problem_issue_evidence_must_equal_original_screenshot:{element_id}")
+        return
+    if not any(parent.name == "screenshots" for parent in resolved_evidence.parents):
+        errors.append(f"{prefix}:problem_issue_evidence_must_be_under_screenshots:{element_id}")
+
+
 def complexity_rating(tag_count: int, icon_count: int) -> str:
     """Return the fixed eval-4 rating from independently counted instances."""
     if tag_count >= 7 or icon_count >= 4:
@@ -855,7 +873,11 @@ def main() -> int:
     parser.add_argument("--results", type=Path, required=True, help="JSON array of EVAL_SCHEMA results")
     parser.add_argument("--audit", type=Path, help="Write audit JSON")
     parser.add_argument("--phase2-review", type=Path, help="Write pending Phase2 re-recognition requests for unsupported component findings")
-    parser.add_argument("--require-evidence", action="store_true", help="Require a local evidence image for every failed element issue")
+    parser.add_argument(
+        "--require-evidence",
+        action="store_true",
+        help="Require every problem issue to reference its existing original screenshots/ image",
+    )
     args = parser.parse_args()
 
     manifest = json.loads(args.manifest_audit.read_text(encoding="utf-8"))
@@ -1278,20 +1300,10 @@ def main() -> int:
                     errors.append(f"{skill}/{tab}:issue_coord_must_equal_manifest:{element_id}")
                 if not element_in_manifest:
                     continue
-                # Whole-page conclusions without a Phase2-confirmed local boundary
-                # intentionally use original-page evidence and must not fabricate a red box.
-                requires_local_evidence = evidence_mode in {"annotated-region", "hybrid"}
-                if args.require_evidence and requires_local_evidence and issue.get("rating") in {"🟡", "达标", "🔴", "不达标"}:
-                    evidence_path = issue.get("evidenceImage")
-                    if not isinstance(evidence_path, str) or not evidence_path or not Path(evidence_path).is_file():
-                        errors.append(f"{skill}/{tab}:problem_issue_evidence_image_missing:{element_id}")
-                    if result.get("dimension") == "phase3-single_element-eval":
-                        if issue.get("evidenceScope") not in {"component", "card"}:
-                            errors.append(f"{skill}/{tab}:single_element_evidence_scope_must_be_component_or_card:{element_id}")
-                        if issue.get("evidenceTargetElementId") != element_id:
-                            errors.append(f"{skill}/{tab}:single_element_evidence_target_must_equal_issue_element:{element_id}")
-                        if issue.get("evidenceTargetCoord") != active_by_id[element_id].get("coord"):
-                            errors.append(f"{skill}/{tab}:single_element_evidence_target_coord_must_equal_manifest:{element_id}")
+                if args.require_evidence:
+                    require_original_screenshot_evidence(
+                        errors, f"{skill}/{tab}", issue, screenshot, element_id
+                    )
                 rating = issue.get("rating")
                 if rating in {"🔴", "不达标"}:
                     issue_fail += 1

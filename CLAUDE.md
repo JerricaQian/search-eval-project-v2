@@ -45,8 +45,8 @@
 | phase1 截图 | `phase1-screenshot/` | ADB 现场截图或复用已有图，产物写入项目根 `screenshots/` |
 | phase2 轻量识别 | `phase2-card-annotation/` | 本地 CV/OCR、卡型契约、整页门控；每张截图输出一个独立元素清单 JSON |
 | phase3 评测 | `phase3-evaluation/` | 统一入口下按单元素、组件/卡片、页面框架三个维度执行 19 项评测 |
-| phase4 问题证据 | `phase4-issue-evidence/` | 只为 phase3 已判为问题的位置产出整页截图红框证据图 |
-| phase5 报告 | `phase5-report/` + `workflow/eval_cli.py finalize-batch` | 全部词进入 completed/abandoned 终态后，仅消费完成词的 manifest、结果与局部证据，生成一份本地 HTML 与治理数据集 |
+| phase4 问题证据 | `phase4-issue-evidence/` | 将 phase3 已判定的问题直接绑定到对应 `screenshots/` 原图，不生成派生图片 |
+| phase5 报告 | `phase5-report/` + `workflow/eval_cli.py finalize-batch` | 全部词进入 completed/abandoned 终态后，仅消费完成词的 manifest、结果与原图证据引用，生成一份本地 HTML 与治理数据集 |
 
 
 ## phase2 输入 / 输出（关键）
@@ -64,9 +64,9 @@
 
 ```
 screenshots/ ──phase2 轻量识别──▶ screenshots-out/ ──phase3 评测──▶ .artifacts/
-   (截图)                         (每张截图一个元素清单)              (问题定位)
-                                                                         │
-                                      screenshots-out/evidence/ ◀──phase4 问题证据标注
+   (原图)                         (每张截图一个元素清单)              (问题与原图引用)
+      │                                                                  │
+      └──────────────────────phase4 直接引用原图──────────────────────────┘
                                                                          │
                                                                          ▼
                                                                      reports/
@@ -78,7 +78,7 @@ screenshots/ ──phase2 轻量识别──▶ screenshots-out/ ──phase3 �
 ## phase5 本地与线上出口
 
 - `phase5-report/SKILL.md` 负责整批本地 HTML；只在所有预期词进入终态后运行。仅 completed 词进入数据集和报告；连续三次失败的 abandoned 词仅保留在批次控制状态中。必须至少存在一个 completed 词；业务 Tab 只能由回执 manifest 中当前截图可见商卡的语义与履约标识推导，`expectedBusinessTabs` 如传入仅作事后精确断言，绝不能作为归属依据；再由确定性生成器生成唯一看板与数据集。
-- `phase5-report/nocode-dashboard/SKILL.md` 负责将上述数据集导入 NoCode、发布 Phase4 局部问题证据图并部署线上看板。线上页必须沿用本地看板的信息架构、分数/计数口径、视觉令牌与交互语义；它不能读取开发机 `file://` 图片，证据图需经 `public/evidence/` 受控资源发布。
+- `phase5-report/nocode-dashboard/SKILL.md` 负责将上述数据集导入 NoCode、发布 Phase4 引用的原始截图并部署线上看板。线上页必须沿用本地看板的信息架构、分数/计数口径、视觉令牌与交互语义；它不能读取开发机 `file://` 图片，原图证据需经 `public/evidence/` 受控资源发布。
 - NoCode 数据库的每张批次明细表都以真实 `batch_id` 关联；浏览器匿名角色对看板表的只读权限是上线验收项。CLI 能读取记录不代表线上页面可读。
 
 ## 执行模式：显式 Workflow 与 Agent 任务编排
@@ -158,7 +158,7 @@ phase2 默认开启轻量识别；仅 `annotate=false` 显式跳过。`phase2Mod
 ## 命名与路径规范（铁律，详见 `.claude/rules/project-conventions.md`）
 
 - 阶段目录一律 `phaseN-<role>`，不带 `-skill` 后缀：`phase1-screenshot`、`phase2-card-annotation`、`phase3-*-eval`、`phase4-issue-evidence`、`phase5-report`。
-- 数据流：`screenshots/`（phase1 出/phase2 入）→ `screenshots-out/`（phase2 清单；可选全量 PNG）→ `.artifacts/`（phase3 结果）→ `screenshots-out/evidence/`（phase4 整页红框证据）→ `reports/`（phase5 HTML；批量看板同时输出 `.governance_dataset_<批次>.json`）→ NoCode 线上看板（可选）。**不得**用 `screenshots/annotated/` 或 skill 内部 `out/`。
+- 数据流：`screenshots/`（phase1 出/phase2 入，同时作为 Phase4 问题证据原图）→ `screenshots-out/`（phase2 清单；可选全量 PNG）→ `.artifacts/`（phase3 结果与 Phase4 原图引用）→ `reports/`（phase5 HTML；批量看板同时输出 `.governance_dataset_<批次>.json`）→ NoCode 线上看板（可选）。Phase4 不再写 `screenshots-out/evidence/`；**不得**用 `screenshots/annotated/` 或 skill 内部 `out/`。
 - 场景脚本输入/输出必须用项目级绝对路径，不得写独立的 `Desktop/<旧名>/` 或 `meituan_search_screenshots_v2/`。
 - 旧名 `screenshot-skill` / `report-skill` / 非前缀维度名已废弃，见到即视为待替换。
 

@@ -18,7 +18,14 @@ class CvLlmModeTests(unittest.TestCase):
         previous = os.environ.get("PHASE2_DISABLE_LOCAL_OCR")
         os.environ["PHASE2_DISABLE_LOCAL_OCR"] = "1"
         try:
-            facts = extract_cv_facts.extract(ROOT / "screenshots" / "漂流_全部_1_副本.png")
+            facts = extract_cv_facts.extract(
+                ROOT
+                / "phase2-card-annotation"
+                / "golden-samples"
+                / "merchant-text-hang"
+                / "component-level"
+                / "商家卡片-文下挂-搜索词为漂流.png"
+            )
         finally:
             if previous is None:
                 os.environ.pop("PHASE2_DISABLE_LOCAL_OCR", None)

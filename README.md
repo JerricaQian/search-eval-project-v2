@@ -132,7 +132,7 @@ Phase5 不调用模型，不重新评测截图，也不会把总报告写回各�
 | Phase1 截图/发现 | 设备或已有截图 | `screenshots/` |
 | Phase2 事实识别 | 单张截图 | `screenshots-out/` 内一图一份事实清单 |
 | Phase3 评测 | 原始截图和对应事实清单 | `.artifacts/过程文件-评测结果与审计/`；视觉项共用一次原图观察，色彩项共用一份像素统计产物 |
-| Phase4 证据 | 已确认的问题定位 | `screenshots-out/evidence/` |
+| Phase4 证据 | 已确认的问题与所属原图 | 在 Phase3 结果中回写 `screenshots/` 原图路径；不生成派生图片 |
 | Phase5 报告 | 本批 completed 词已验收的结果、manifest 和证据 | `reports/` 内唯一批量 HTML 和治理数据集；不呈现 abandoned 词 |
 
 每张截图都有独立事实清单，Phase3 只消费已通过 Phase2 校验的清单。批量索引只用于定位文件，不能替代单图事实。Phase3 不要求 Phase2 为主观视觉判断新增字段：结构、数量和语义类规则扫描事实清单；视觉秩序、信息层级、信息分区等感知类规则由同一 Evaluation Agent 复用已读取的原图上下文统一判断；卡片与页面色彩复用同一份原图像素测量结果。
@@ -177,7 +177,7 @@ Evaluation Agent 只完成 Phase2～4，并返回可核验的文件路径。它�
 | `elementAuditPaths` | 证明每份 Phase2 manifest 已通过确定性验收 |
 | `evalResultFile` | 获取维度、Skill、Tab、评级、问题描述和独立建议 |
 | `evalAuditFile` | 证明 Phase3 结果和 Phase4 证据引用已通过确定性验收 |
-| `evidenceImages` | 验证问题证据文件真实存在；HTML 使用结果中回写的 `evidenceImage` |
+| `evidenceImages` | 问题实际引用的 `screenshots/` 原图去重集合；HTML 使用结果中回写的同一 `evidenceImage` |
 | `stageD` | 固定为空交接对象；最终报告只在批次级 Phase5 生成 |
 
 同一搜索词可以包含多张截图。Phase5 按原图路径隔离 manifest，因此不同截图中重复出现的 `C1`、`E1` 等局部 ID 不会相互覆盖或被错误去重。
@@ -205,7 +205,7 @@ Workflow
 
 已确认截图超过 3 张时，Workflow 必须按词级子代理执行；每个子代理处理一个搜索词的全部截图，每批最多 3 个子代理并发。`batch_evaluate` 负责批次状态快照、失败词隔离重派和终态屏障。评级和事实判断仍由词级评测流程完成。Phase5 只读取 completed 词的精确产物；连续三次失败的 abandoned 词不进入报告，全部失败时不生成报告。
 
-任务只使用 `MEITUAN_EVAL_TASK`、`MEITUAN_AGENT_DISPATCH`、`workflow/contracts/phase234-query-pipeline.md` 和 `evaluation-result.schema.json`。流程先产出不可发布的本地 CV 候选，再由具备读图能力的宿主完成当前像素复核；门禁失败在同一任务内按卡片定向修正并重新发布，只有耗尽重试预算后才阻断。Phase3 按所选 Skill 运行必要的确定性像素测量，Phase4 生成并校验证据。历史版本契约已备份并移出当前入口，已有本地产物保持不变。
+任务只使用 `MEITUAN_EVAL_TASK`、`MEITUAN_AGENT_DISPATCH`、`workflow/contracts/phase234-query-pipeline.md` 和 `evaluation-result.schema.json`。流程先产出不可发布的本地 CV 候选，再由具备读图能力的宿主完成当前像素复核；门禁失败在同一任务内按卡片定向修正并重新发布，只有耗尽重试预算后才阻断。Phase3 按所选 Skill 运行必要的确定性像素测量，Phase4 回写并校验问题所属原图引用。历史版本契约已备份并移出当前入口，已有本地产物保持不变。
 
 ## 目录速览
 
@@ -213,11 +213,11 @@ Workflow
 phase1-screenshot/                 截图与已有截图发现
 phase2-card-annotation/            单图事实识别与校验
 phase3-evaluation/                Phase3 统一入口、共同知识与 19 项评测
-phase4-issue-evidence/             问题证据图
+phase4-issue-evidence/             问题与原图证据引用
 phase5-report/                     本地报告与可选线上看板
 workflow/                          任务路由与宿主交接
 screenshots/                       截图输入
-screenshots-out/                   Phase2 清单与问题证据
+screenshots-out/                   Phase2 清单（历史证据图片只读保留）
 .artifacts/过程文件-评测结果与审计/ 过程结果与审计
 reports/                           最终本地报告
 ```

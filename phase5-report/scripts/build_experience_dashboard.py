@@ -672,7 +672,7 @@ def collect(
                     "metricName": metric_name, "metricCode": metric_code, "tab": tab,
                     "rating": str(unit.get("rating", "")), "reason": str(unit.get("reason", "")),
                     "evidenceMode": str(detail.get("evidenceMode", "")), "issues": issues,
-                    # 原图来自统一清单；问题图来自 Phase4 写入的 issue.evidenceImage。
+                    # 原图来自统一清单；Phase4 将同一路径写入 issue.evidenceImage。
                     "screenshot": screenshot, "annotatedImage": annotated,
                 })
                 # 看板的待优化对象包含“达标”和“不达标”：只有“优秀”不进入问题治理。
@@ -941,11 +941,14 @@ def validate_dataset(
             if unit.get("rating") not in {"未执行", "未选择"} and not unit.get("screenshot"):
                 raise ValueError(f"搜索词 {query} 缺少统一元素清单声明的原图路径")
             for issue in unit.get("issues", []):
-                # 页面/关系型结论可能为追溯保留元素坐标，但未有经 Phase2 确认的
-                # 局部边界时只展示原图，不能强制生成伪红框。
-                needs_local_evidence = unit.get("evidenceMode") in {"annotated-region", "hybrid"}
-                if isinstance(issue, dict) and needs_local_evidence and issue.get("coord") and str(issue.get("rating", "")) in {"达标", "不达标", "🟡", "🔴"} and not issue.get("evidenceImage"):
-                    raise ValueError(f"搜索词 {query} 的带坐标待优化元素/组件问题缺少 Phase4 整页红框证据图")
+                if not isinstance(issue, dict) or str(issue.get("rating", "")) not in {"达标", "不达标", "🟡", "🔴"}:
+                    continue
+                screenshot = str(unit.get("screenshot") or "")
+                evidence_image = str(issue.get("evidenceImage") or "")
+                if not evidence_image or not Path(evidence_image).is_file():
+                    raise ValueError(f"搜索词 {query} 的待优化问题缺少 Phase4 原始截图证据")
+                if Path(evidence_image).resolve() != Path(screenshot).resolve():
+                    raise ValueError(f"搜索词 {query} 的问题证据未引用所属评测单元原图")
     allowed_codes = set(EXPECTED_REPORT_BUSINESS_TABS)
     actual_businesses = {item.get("businessCode"): item for item in data["businesses"]}
     unexpected_codes = sorted(set(actual_businesses) - allowed_codes)
@@ -991,12 +994,7 @@ def visible_business_tabs(data: dict[str, Any]) -> set[str]:
 
 
 def replace_issue_evidence_with_original_screenshots(data: dict[str, Any]) -> None:
-    """Use each issue's accepted source screenshot as its displayed evidence.
-
-    This is an explicit report-presentation override. It leaves Phase3/4 source
-    artifacts untouched while keeping query details and governance groups in
-    the emitted dataset consistent with the HTML.
-    """
+    """Normalize legacy datasets to the current original-screenshot policy."""
     for units in data.get("queryDetails", {}).values():
         for unit in units:
             screenshot = str(unit.get("screenshot") or "")
@@ -1053,7 +1051,7 @@ def main() -> int:
     parser.add_argument(
         "--original-screenshot-evidence",
         action="store_true",
-        help="显式展示覆盖：所有问题证据图改用对应评测单元的原始搜索截图，不改写 Phase4 源文件。",
+        help="旧结果兼容：在报告内把历史问题证据归一为对应原图；新 Phase4 结果无需此参数。",
     )
     parser.add_argument(
         "--exclude-issue",

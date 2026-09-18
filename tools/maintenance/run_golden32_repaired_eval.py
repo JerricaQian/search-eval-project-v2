@@ -949,15 +949,14 @@ def main() -> int:
         write(results_path, results)
         run([sys.executable, str(VALIDATOR), "--manifest-audit", str(audit_path), "--results", str(results_path), "--audit", str(eval_audit), "--phase2-review", str(phase2_review)])
 
-        evidence_dir = PROJECT / "screenshots-out/evidence" / f"{query}_{run_id}"
-        evidence_run = run([sys.executable, str(EVIDENCE_SCRIPT), "--results", str(results_path), "--manifest", str(manifest), "--output-dir", str(evidence_dir)], capture=True)
+        evidence_run = run([sys.executable, str(EVIDENCE_SCRIPT), "--results", str(results_path), "--manifest", str(manifest)], capture=True)
         evidence_info = json.loads(evidence_run.stdout.strip().splitlines()[-1])
         run([sys.executable, str(VALIDATOR), "--manifest-audit", str(audit_path), "--results", str(results_path), "--audit", str(eval_audit), "--phase2-review", str(phase2_review), "--require-evidence"])
 
         write(phase5 / "eval-targets.json", targets)
         write(phase5 / "scope.json", read(SCOPE_FILE)["coverage"])
         write(phase5 / "tabs.json", ["全部"])
-        write(phase5 / "images.json", [{"original": str(screenshot), "annotated": evidence_info.get("created", [""])[0] if evidence_info.get("created") else ""}])
+        write(phase5 / "images.json", [{"original": str(screenshot), "annotated": evidence_info.get("referenced", [""])[0] if evidence_info.get("referenced") else ""}])
         computed = phase5 / "computed-summary.json"
         run([sys.executable, str(SUMMARY_SCRIPT), "--results", str(results_path), "--eval-targets", str(phase5 / "eval-targets.json"), "--scope", str(phase5 / "scope.json"), "--tabs", str(phase5 / "tabs.json"), "--images", str(phase5 / "images.json"), "--query", query, "--output", str(computed)])
         summary = read(computed)
@@ -985,7 +984,7 @@ def main() -> int:
             "ok": True, "query": query,
             "stageA": {"elementListPaths": [str(manifest)], "elementAuditPaths": [str(audit_path)], "elementCount": len(all_ids), "annotated": []},
             "stageB": {"evalResultFile": str(results_path), "evalAuditFile": str(eval_audit), "evalCount": 19},
-            "stageC": {"evidenceImages": evidence_info.get("created", []), "skipped": evidence_info.get("skipped", [])},
+            "stageC": {"evidenceImages": evidence_info.get("referenced", []), "skipped": evidence_info.get("skipped", [])},
             "stageD": {"reportPath": str(report), "summary": summary["overall"]},
             "blockedAt": "", "error": "",
         }

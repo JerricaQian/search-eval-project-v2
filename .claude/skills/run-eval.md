@@ -179,7 +179,7 @@ Workflow 返回规范截图组；对 `IMG_*.PNG` 等未命名图会自动读取�
 
 - 每张截图一个独立 manifest；
 - Phase2 默认本地轻量识别，必须通过 `validate_element_manifest.py`；
-- Phase3/4 必须通过 `validate_eval_results.py`，Phase4 使用 `--require-evidence`；
+- Phase3/4 必须通过 `validate_eval_results.py`，Phase4 使用 `--require-evidence` 校验每个问题精确引用所属 `screenshots/` 原图；
 - 成功结果的 `stageD={}`，不写报告内容或报告路径；
 - 不删除或覆盖截图、过程文件、证据或历史报告。
 

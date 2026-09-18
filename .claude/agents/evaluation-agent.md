@@ -21,7 +21,7 @@ tools: Read, Bash, Write, Grep, Glob
 - Phase2 必须执行“本地 CV/OCR + 当前图片全量视觉复核 + 黄金结构范例”校准；黄金字段不得注入，单图 manifest 约束不变。
 - 不跳过 `validate_element_manifest.py`、`build_phase2_retry_plan.py`、`prepare_phase3_measurements.py`、`validate_eval_results.py` 或 `--require-evidence`。
 - 不修改历史截图或过程产物；本次运行使用新的批次/过程目录。
-- Phase4 不增加业务判断；词级 Agent 不执行 Phase5，也不跨词读取其他任务产物。
+- Phase4 不增加业务判断，只把问题绑定到对应 `screenshots/` 原图；不绘制红框或生成派生图片。词级 Agent 不执行 Phase5，也不跨词读取其他任务产物。
 - 对输入、OCR、证据或规则产生的质疑只能作为复核记录；需要改变事实、坐标、评级或计数时，必须回退对应正式阶段重跑，不能以人工判断覆盖既有结果。
 
 ## 输出

@@ -244,7 +244,7 @@ Phase3 通过 `scripts/phase2_bundle_loader.py` 直接消费 atomic v3；入口�
 }
 ```
 
-轻量模式不发布 `annotatedImage`；批次级 Phase5 统一使用各词级 Agent 交付的原始 `screenshot` 与 Phase4 问题证据图。旧清单中的该字段仅为兼容读取，不能作为新产物要求。
+轻量模式不发布 `annotatedImage`；批次级 Phase5 统一使用各词级 Agent 交付、并由 Phase4 回写到问题项的原始 `screenshot`。旧清单中的该字段仅为兼容读取，不能作为新产物要求。
 
 `pageFacts` 至少记录 `screen`、`isContinuation`、`viewport` 和 `modules[]`。每个 module 含 `id`、`moduleType`、`coord`、`visibleStatus`、`contentRole`、`isListPrefix`、`isListItem`。
 

@@ -559,7 +559,7 @@ const PIPELINE_SCHEMA = {
     stageC: {
       type: 'object',
       properties: {
-        evidenceImages: { type: 'array', items: { type: 'string' } },
+        evidenceImages: { type: 'array', description: '问题实际引用的 screenshots 原图去重集合', items: { type: 'string' } },
         skipped: { type: 'array' },
       },
       required: ['evidenceImages', 'skipped'],
@@ -694,7 +694,7 @@ resolvedTargets.forEach(target => { skillDirs[target.dimension] = projectDir + '
 
 // ---------- Evaluation Agent: Phase 2+3+4 ----------
 // 原 phase2-annotator / phase4-issue-evidence 合并为一次 phase234-query-pipeline 调用：
-// 同一子代理上下文内部顺序完成 Stage A(本地识别)→B(评测)→C(问题证据)→D(空交接)，
+// 同一子代理上下文内部顺序完成 Stage A(本地识别)→B(评测)→C(原图证据引用)→D(空交接)，
 // 中间不返回调用方、不切换子代理。Phase5 在全部词级回执通过后由批次控制器运行一次。
 // 所有阶段级契约细节（Phase2 当前图片校准、七键单图清单、FACT_GATES、共享契约优先、assessmentRows/issues 结构、
 // 页面框架结论边界与批次报告交接等）已完整写入 workflow/contracts/phase234-query-pipeline.md，
@@ -702,6 +702,7 @@ resolvedTargets.forEach(target => { skillDirs[target.dimension] = projectDir + '
 const evalResultFile = artifactRunDir + '/results/评测原始结果_' + query + tagSuffix + '_' + dimSlug + '.json'
 const evalAuditFile = artifactRunDir + '/results/评测结果校验_' + query + tagSuffix + '_' + dimSlug + '.json'
 const phase2ReviewFile = artifactRunDir + '/results/待回退Phase2复核_' + query + tagSuffix + '_' + dimSlug + '.json'
+// 兼容旧宿主的冻结字段；新 Phase4 不写该目录，直接引用 screenshots 原图。
 const issueEvidenceDir = annotatedDir + '/evidence/' + query + tagSuffix
 const measurementsDir = artifactRunDir + '/phase3/measurements'
 const stagePaths = { measurementsDir, evalResultFile, evalAuditFile, phase2ReviewFile, issueEvidenceDir }
@@ -732,7 +733,7 @@ const mergedInputs = {
   phase2ReviewFile,
   phase2RereviewAuditFile,
   phase2RereviewValidationFile,
-  // Phase4（问题证据）
+  // Phase4（问题原图引用；issueEvidenceDir 仅兼容旧任务）
   issueEvidenceSkillDir,
   issueEvidenceDir,
   stagePaths,
@@ -766,7 +767,7 @@ const elementListPaths = stageA.elementListPaths
 const elementAuditPaths = stageA.elementAuditPaths
 const elementCount = stageA.elementCount
 const annotatedPaths = stageA.annotated
-log('Phase2+3+4 完成: elementCount=' + elementCount + ' evalCount=' + (stageB.evalCount || 0) + ' evidenceImages=' + ((stageC.evidenceImages || []).length) + '；等待批次级 Phase5')
+log('Phase2+3+4 完成: elementCount=' + elementCount + ' evalCount=' + (stageB.evalCount || 0) + ' referencedOriginals=' + ((stageC.evidenceImages || []).length) + '；等待批次级 Phase5')
 
 // ---------- Phase2 manifest 质量侧审计（可选，仅记录 L1/L2/L3 合规率，不阻断） ----------
 // phase3-标记权威白名单，仅供本侧审计脚本比对，不再注入合并子代理的 Prompt（Stage A 已在

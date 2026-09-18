@@ -100,23 +100,10 @@ def flattened_issues(groups: list[dict[str, Any]]) -> list[tuple[dict[str, Any],
     ]
 
 
-def fill_missing_evidence(entries: list[tuple[dict[str, Any], dict[str, Any]]]) -> list[tuple[dict[str, Any], dict[str, Any]]]:
-    by_screenshot: dict[str, str] = {}
-    for _, issue in entries:
-        image, screenshot = issue_image(issue), str(issue.get("screenshot") or "")
-        if image and screenshot:
-            by_screenshot.setdefault(screenshot, image)
-    return [
-        (group, {**issue, "evidenceImage": by_screenshot.get(str(issue.get("screenshot") or ""), "")})
-        if not issue_image(issue) and str(issue.get("screenshot") or "") in by_screenshot else (group, issue)
-        for group, issue in entries
-    ]
-
-
 def make_summary(businesses: list[dict[str, Any]], groups: list[dict[str, Any]], code: str | None = None) -> dict[str, Any]:
     scoped_businesses = [item for item in businesses if code is None or item.get("businessCode") == code]
     scoped_groups = [item for item in groups if code is None or item.get("businessCode") == code]
-    issues = fill_missing_evidence(flattened_issues(scoped_groups))
+    issues = flattened_issues(scoped_groups)
     priority_counts = Counter(priority(issue, group) for group, issue in issues)
     level_counts = Counter(str(group.get("level") or "") for group, _ in issues)
     return {
@@ -244,7 +231,7 @@ def render_by_query(entries: list[tuple[dict[str, Any], dict[str, Any]]]) -> str
     buckets: dict[str, list[tuple[dict[str, Any], dict[str, Any]]]] = defaultdict(list)
     for group, issue in entries:
         buckets[str(issue.get("query") or "未命名搜索词")].append((group, issue))
-    description = "<div class='detail-description'>按 query 聚合，展示每个搜索词下的全部问题与典型证据图。</div>"
+    description = "<div class='detail-description'>按 query 聚合，展示每个搜索词下的全部问题与对应原始截图。</div>"
     if not buckets:
         return description + "<div class='empty'>该业务暂无问题。</div>"
     all_tab = f"<div class='subfilter-bar' aria-label='搜索词范围'><span class='subfilter active'>全部 Tab <span>{len(buckets)}</span></span></div>"

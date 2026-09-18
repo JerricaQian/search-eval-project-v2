@@ -122,7 +122,7 @@ class Phase5DashboardRendererTest(unittest.TestCase):
         self.assertIn("aria-label='问题指标筛选'", html)
         self.assertIn("data-filter-value='信息冗余'", html)
         self.assertIn("按 P0、P1、P2 问题等级聚合，按原始优先级排序展示。", html)
-        self.assertIn("按 query 聚合，展示每个搜索词下的全部问题与典型证据图。", html)
+        self.assertIn("按 query 聚合，展示每个搜索词下的全部问题与对应原始截图。", html)
         self.assertIn("按体验指标聚合，选择指标后查看该指标下的问题与典型证据。", html)
         self.assertIn("querySelectorAll('.subfilter-bar')", html)
         self.assertIn("value!=='all'&&card.dataset.filterCard!==value", html)

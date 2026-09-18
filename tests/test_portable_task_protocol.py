@@ -23,6 +23,53 @@ class PortableTaskProtocolTest(unittest.TestCase):
             for target in task["evalTargets"]
         ]
 
+    def write_completion_fixture(self, task: dict, result_path: Path, issue_evidence: str | None = None) -> None:
+        manifest = Path(task["workflowArgs"]["phase2Outputs"][0]["manifest"])
+        manifest.parent.mkdir(parents=True, exist_ok=True)
+        manifest.write_text("{}")
+        manifest_audit = Path(task["workflowArgs"]["phase2Outputs"][0]["audit"])
+        manifest_audit.write_text('{"valid": true}')
+        rows = self.eval_rows(task)
+        evidence_images: list[str] = []
+        if issue_evidence is not None:
+            screenshot = task["workflowArgs"]["phase2Outputs"][0]["screenshot"]
+            rows[0]["units"] = [{
+                "tab": "全部",
+                "details": {
+                    "screenshot": screenshot,
+                    "issues": [{"elementId": "E1", "rating": "不达标", "evidenceImage": issue_evidence}],
+                },
+            }]
+            evidence_images = [issue_evidence]
+        eval_result = Path(task["workflowArgs"]["stagePaths"]["evalResultFile"])
+        eval_result.parent.mkdir(parents=True)
+        eval_result.write_text(json.dumps(rows, ensure_ascii=False))
+        eval_audit = Path(task["workflowArgs"]["stagePaths"]["evalAuditFile"])
+        eval_audit.write_text('{"valid": true}')
+        measurements = Path(task["workflowArgs"]["stagePaths"]["measurementsDir"]) / "phase3-measurements.json"
+        measurements.parent.mkdir(parents=True)
+        measurements.write_text('{"valid": true}')
+        result_path.write_text(json.dumps({
+            "ok": True,
+            "query": "露营",
+            "stageA": {
+                "phase2Attempts": 1,
+                "retryPlans": [{"contract": "phase2.retry-plan", "attempt": 1, "maxAttempts": 3, "errors": [], "retryRequired": False}],
+                "elementListPaths": [str(manifest)],
+                "elementAuditPaths": [str(manifest_audit)],
+            },
+            "stageB": {
+                "measurementsIndex": str(measurements),
+                "evalResultFile": str(eval_result),
+                "evalAuditFile": str(eval_audit),
+                "evalCount": len(task["evalTargets"]),
+            },
+            "stageC": {"evidenceImages": evidence_images},
+            "stageD": {},
+            "blockedAt": "",
+            "error": "",
+        }, ensure_ascii=False))
+
     def prepare(self, root: Path, run_id: str = "portable-01", image_count: int = 1) -> dict:
         source = root / "external"
         project = root / "project"
@@ -354,6 +401,39 @@ class PortableTaskProtocolTest(unittest.TestCase):
             receipt = json.loads(completed.stdout)
             self.assertEqual(receipt["status"], "completed")
             self.assertTrue(Path(receipt["receiptPath"]).is_file())
+
+    def test_finalize_accepts_problem_evidence_referencing_task_screenshot(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            payload = self.prepare(Path(tmp), run_id="original-evidence")
+            task_path = Path(payload["portableTask"]["taskPath"])
+            result_path = Path(payload["portableTask"]["resultPath"])
+            task = json.loads(task_path.read_text())
+            screenshot = task["workflowArgs"]["phase2Outputs"][0]["screenshot"]
+            self.write_completion_fixture(task, result_path, screenshot)
+
+            completed = subprocess.run(
+                [sys.executable, str(CLI_PATH), "finalize-evaluate", "--task", str(task_path), "--result", str(result_path)],
+                check=True, capture_output=True, text=True,
+            )
+            self.assertEqual(json.loads(completed.stdout)["status"], "completed")
+
+    def test_finalize_rejects_legacy_redbox_evidence(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            payload = self.prepare(Path(tmp), run_id="legacy-redbox")
+            task_path = Path(payload["portableTask"]["taskPath"])
+            result_path = Path(payload["portableTask"]["resultPath"])
+            task = json.loads(task_path.read_text())
+            legacy = Path(task["projectDir"]) / "screenshots-out" / "evidence" / "legacy.png"
+            legacy.parent.mkdir(parents=True, exist_ok=True)
+            Image.new("RGB", (8, 8), "red").save(legacy)
+            self.write_completion_fixture(task, result_path, str(legacy))
+
+            completed = subprocess.run(
+                [sys.executable, str(CLI_PATH), "finalize-evaluate", "--task", str(task_path), "--result", str(result_path)],
+                check=False, capture_output=True, text=True,
+            )
+            self.assertEqual(completed.returncode, 2)
+            self.assertIn("stageC.issue_evidence_must_equal_task_screenshot", json.loads(completed.stdout)["error"])
 
     def test_finalize_rejects_empty_result_for_selected_targets(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

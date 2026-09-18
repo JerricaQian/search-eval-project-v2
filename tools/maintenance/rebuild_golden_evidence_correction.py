@@ -174,12 +174,11 @@ def fill_page_source_evidence(results: list[dict[str, Any]], screenshot: Path) -
                     issue["evidenceImage"] = str(screenshot)
 
 
-def run_phase4(results: Path, manifest: Path, evidence_dir: Path) -> None:
+def run_phase4(results: Path, manifest: Path) -> None:
     previous_argv = sys.argv
     try:
         sys.argv = [
             "generate_issue_evidence.py", "--results", str(results), "--manifest", str(manifest),
-            "--output-dir", str(evidence_dir),
         ]
         code = generate_evidence()
     finally:
@@ -204,14 +203,13 @@ def main() -> int:
     parser.add_argument("--project-dir", type=Path, required=True)
     parser.add_argument("--input-artifact-dir", type=Path, required=True)
     parser.add_argument("--output-artifact-dir", type=Path, required=True)
-    parser.add_argument("--output-evidence-dir", type=Path, required=True)
+    parser.add_argument("--output-evidence-dir", type=Path, help="Deprecated; Phase4 no longer writes image files")
     parser.add_argument("--queries", nargs="*", help="Optional query subset; defaults to available input queries")
     args = parser.parse_args()
 
     project = args.project_dir.resolve()
     input_dir = args.input_artifact_dir.resolve()
     output_dir = args.output_artifact_dir.resolve()
-    evidence_root = args.output_evidence_dir.resolve()
     manifests = atomic_manifests(project)
     wanted = args.queries or sorted(path.name for path in input_dir.iterdir() if path.is_dir())
     report: list[dict[str, str]] = []
@@ -236,7 +234,7 @@ def main() -> int:
         prepare_results(results, screenshot)
         reconcile_issue_coords(results, fact_pack)
         write_json(output_results, results)
-        run_phase4(output_results, manifest, evidence_root / query)
+        run_phase4(output_results, manifest)
         corrected = read_json(output_results)
         fill_page_source_evidence(corrected, screenshot)
         write_json(output_results, corrected)

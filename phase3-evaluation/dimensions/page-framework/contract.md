@@ -41,7 +41,7 @@ description: phase3-page_framework-eval 维度 7 个 eval skill 共享的"三档
 
 **以下 2 条 7 个 skill 逐字相同：**
 
-- 页面框架的每条“达标”或“不达标” issue 都必须提供存在的 `evidenceImage`，报告必须直接渲染该图，不得只显示文字结论。有精确可标注的问题必须生成当前原图的红框/高亮证据图，并使用 `details.evidenceMode: annotated-region`；同时含精确问题与整页统计时使用 `hybrid`。整页统计、跨区域关系或无唯一坐标的问题使用 `original-page`，并把 `details.screenshot` 原图路径同时写入 issue 的 `evidenceImage`，不伪造红框、不写“待人工定位”。
+- 页面框架的每条“达标”或“不达标” issue 都必须把 `details.screenshot` 指向的当前原图同时写入 `evidenceImage`，报告直接渲染该原图，不得只显示文字结论，也不得生成或回退到红框图、裁剪图、Phase2 标注图或其他截图。`details.evidenceMode` 继续描述 Phase3 结论所依据的范围类型，不决定 Phase4 的图片类型。
 - 优秀仅在评测详情展示 `reason` 及原图，不进入发现问题/治理项；达标和不达标才进入待优化项。
 
 ## Phase2 事实输入契约（整节技能专属，不共享）

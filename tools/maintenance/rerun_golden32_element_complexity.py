@@ -373,8 +373,7 @@ def main() -> int:
         base.write_json(result_path, results)
         base.write_json(decision_path, {"valid": True, "query": query, "manifest": str(manifest), **decision_audit})
         run([sys.executable, str(VALIDATOR), "--manifest-audit", str(acceptance_path), "--results", str(result_path), "--audit", str(audit_path), "--phase2-review", str(review_path)])
-        evidence_dir = PROJECT / "screenshots-out/evidence" / f"{query}_{run_id}"
-        evidence_run = run([sys.executable, str(EVIDENCE), "--results", str(result_path), "--manifest", str(manifest), "--output-dir", str(evidence_dir)], capture=True)
+        evidence_run = run([sys.executable, str(EVIDENCE), "--results", str(result_path), "--manifest", str(manifest)], capture=True)
         evidence_info = json.loads(evidence_run.stdout.strip().splitlines()[-1])
         run([sys.executable, str(VALIDATOR), "--manifest-audit", str(acceptance_path), "--results", str(result_path), "--audit", str(audit_path), "--phase2-review", str(review_path), "--require-evidence"])
         report = REPORT_ROOT / f"meituan_eval_report_{query}_{run_id}_full19.html"
@@ -396,7 +395,7 @@ def main() -> int:
             "ok": True, "query": query,
             "stageA": {"elementListPaths": [str(manifest)], "elementAuditPaths": [str(acceptance_path)], "elementCount": len(active), "annotated": []},
             "stageB": {"evalResultFile": str(result_path), "evalAuditFile": str(audit_path), "evalCount": 19},
-            "stageC": {"evidenceImages": evidence_info.get("created", []), "skipped": evidence_info.get("skipped", [])},
+            "stageC": {"evidenceImages": evidence_info.get("referenced", []), "skipped": evidence_info.get("skipped", [])},
             "stageD": {"reportPath": str(report), "summary": []}, "blockedAt": "", "error": "",
         }
         base.write_json(agent_result_path, agent_result, refuse_existing=True)

@@ -16,6 +16,7 @@ import json
 import re
 import subprocess
 import sys
+from pathlib import Path
 from typing import Any
 
 BATCH_SIZE = 20
@@ -93,17 +94,27 @@ def main() -> None:
         if not units:
             raise RuntimeError(f"搜索词 {word} 没有评测明细，停止导入")
     valid_words = set(query_details)
-    # 轻量 Phase2 模式不产出整页标注图；线上审计和典型证据仅认原图与
-    # Phase4 evidenceImage。因此只阻断缺少原图的已执行评测项，不能把可选
-    # annotatedImage 当作导入前置条件。
+    # 轻量 Phase2 模式不产出整页标注图；Phase4 evidenceImage 必须精确引用
+    # 当前评测单元原图，不能把可选 annotatedImage 当作导入前置条件。
     for word, units in query_details.items():
         for unit in units:
             if unit.get("rating") != "未执行" and not unit.get("screenshot"):
                 raise RuntimeError(f"搜索词 {word} 缺少原始截图路径，停止导入")
+            screenshot = str(unit.get("screenshot") or "")
+            for issue in unit.get("issues") or []:
+                if not isinstance(issue, dict) or issue.get("rating") not in {"达标", "不达标", "🟡", "🔴"}:
+                    continue
+                evidence_image = str(issue.get("evidenceImage") or "")
+                if not evidence_image or Path(evidence_image).resolve() != Path(screenshot).resolve():
+                    raise RuntimeError(f"搜索词 {word} 的问题证据未引用所属原始截图，停止导入")
     for group in groups:
         for evidence_item in group.get("evidence") or []:
             if evidence_item.get("query") not in valid_words:
                 raise RuntimeError("治理卡典型证据引用了当前批次之外的搜索词，停止导入")
+            screenshot = str(evidence_item.get("screenshot") or "")
+            evidence_image = str(evidence_item.get("evidenceImage") or "")
+            if not screenshot or not evidence_image or Path(evidence_image).resolve() != Path(screenshot).resolve():
+                raise RuntimeError("治理卡问题证据未引用所属原始截图，停止导入")
     print(f"数据集：{batch_name}；评测范围：{query_count} 词；有逐词明细：{dataset_query_count} 词；治理分组：{len(groups)}；业务线：{len(businesses)}")
 
     print("\n1. 创建评测批次")
@@ -143,7 +154,7 @@ def main() -> None:
     print("\n3. 写入问题归因")
     # 每条数据库记录一一对应本地报告的一条问题 evidence，禁止将同指标下多
     # 个搜索词/卡片拼接成一段抽象描述或使用组级建议。这样两端的描述、优先级
-    # 与 Phase4 红框证据才能逐条一致。
+    # 与 Phase4 绑定的原始截图证据才能逐条一致。
     issue_rows = []
     for group in groups:
         for evidence in group.get("evidence") or []:

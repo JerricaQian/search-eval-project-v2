@@ -1,57 +1,49 @@
 ---
 name: phase4-issue-evidence
-description: 对 Phase3 已判定为问题的单一元素或组件/卡片生成整页截图红框证据图；单一元素保留精确定位但以所属组件/商卡作为红框上下文，组件/卡片只框选其整体区块，并回写评测结果，作为词级 Agent 交付给批次级 Phase5 与人工复核使用。
+description: 将 Phase3 已判定的问题直接绑定到对应 screenshots 原始截图，不生成红框图、裁剪图或其他派生图片；回写并校验原图引用，作为词级 Agent 交付给批次级 Phase5 与人工复核使用。
 ---
 
-# Phase4 问题证据标注
+# Phase4 问题证据引用
 
 ## 定位
 
-本阶段位于 Phase3 多维度评测之后，是词级 Evaluation Agent 的最后一个执行阶段。它不重新识别页面、不改变评级、分数、`overview.total` 或问题计数；只为 Phase3 已判定为问题的可见区域生成原始尺寸的整页截图红框证据图。通过证据校验后，词级 Agent 交付 Phase2～4 的可核验产物并退出；批次级 Phase5 再统一消费所有词级产物，生成整批报告。
+本阶段位于 Phase3 多维度评测之后，是词级 Evaluation Agent 的最后一个执行阶段。它不重新识别页面，不改变评级、分数、`overview.total`、坐标或问题计数；只把 Phase3 已判定的问题绑定到该评测单元已经声明的 `screenshots/` 原始截图。Phase4 不再绘制红框，也不创建、复制、裁剪或改写任何图片。
 
 ## 输入
 
-- Phase3 最终评测结果：`.artifacts/过程文件-评测结果与审计/<batchId>/<query>/<tag>/results/评测原始结果_<query>[_<tag>]_<dimension>.json`；单词默认批次为 `单词运行`，`tag` 为空时不产生对应路径段/文件后缀。
-- 与问题截图一一对应的 Phase2 元素清单及审计：`screenshots-out/elements_<截图文件名>.json`、`.audit.json`。不得传批量索引或其他截图清单。
-- 原始截图：由清单顶层 `screenshot` 或每个评测单元 `details.screenshot` 指向。
+- Phase3 最终评测结果：`.artifacts/过程文件-评测结果与审计/<batchId>/<query>/<tag>/results/评测原始结果_<query>[_<tag>]_<dimension>.json`。
+- 原始截图：每个评测单元的 `details.screenshot`；仅为旧的单图结果兼容，缺失时可从对应 Phase2 manifest 的 `screenshot` 读取。
+- Phase2 manifest 仅用于兼容取得原图路径，不再用于解析证据框或生成派生图片。
 
 ## 输出
 
-- 证据图目录：`screenshots-out/evidence/<query>/`。
-- 结果回写：同一原始截图中的每个待优化问题（达标或不达标）写入：
-  - `evidenceImage`：有合法局部范围时，使用保持原始尺寸、以红框汇总标出该截图全部问题位置的整页 PNG 绝对路径；页面统计或跨区域关系没有唯一坐标时，直接写同一原图绝对路径。
-  - `evidenceScope`：本阶段写入实际红框粒度，仅可为 `component` 或 `card`；它只记录证据展示口径，不改变 Phase3 的 `coord`、评级或计数。
-  - 单一元素问题另写 `evidenceTargetElementId`、`evidenceTargetCoord`：保持其实际判定对象和精确坐标，明确红框是上下文而非将整个组件判为问题。
-- 不生成裁剪图，也不生成整页 Phase2 全量元素标注 PNG；Phase2 生产路径只提供单图事实 JSON。
+- 每个 `rating ∈ {达标, 🟡, 不达标, 🔴}` 的问题写入 `evidenceImage`，其值必须与所属评测单元的 `details.screenshot` 解析后完全相同，并指向项目 `screenshots/` 下实际存在的原图。
+- `stageC.evidenceImages` 返回所有被问题实际引用的原图绝对路径，按首次出现去重；没有问题时为空数组。
+- 新结果不写 `evidenceScope`、`evidenceTargetElementId`、`evidenceTargetCoord` 或 `evidenceCrop`。
+- 不写 `screenshots-out/evidence/`，不删除该目录中的历史证据图，也不改写任何原始截图。
 
 ## 事实源、校验与修复边界（阻断）
 
-- **Phase2 是唯一定位事实源：**若 Phase3/4 暴露元素遗漏、卡片/模块边界、业务归属或事实字段错误，必须先回到 Phase2 修正 manifest，并重新运行 `validate_element_manifest.py`；随后重建或复跑受影响 Phase3，再执行本 Phase4。禁止直接改写结果 JSON 来伪造坐标、边界或证据。
-- **校验器是闸门：**本阶段只消费已通过 `validate_eval_results.py` 的 Phase3 结果，执行后必须使用 `validate_eval_results.py --require-evidence` 验收。任一校验失败都必须优先修复上游事实或重跑对应阶段，不能继续报告。
-- **修复脚本非默认步骤：**`repair_*` 仅可处理其 docstring 明示的兼容/结构问题；不得借此改变评级、问题数量、事实证据或业务归属。语义变化必须回到 Phase2/Phase3 正式流程。
-- **参数化运行：**命令中的 `results`、`manifest`、`output-dir` 必须均为当前 `projectDir / batch / query` 推导出的路径；不得使用固定搜索词、旧 `reports/`、机器专属路径或 `/tmp` 历史路径作为输入输出。
+- **Phase2 是结构事实源，原图是证据资源：**如果 Phase3/4 暴露元素遗漏、卡片边界、业务归属或事实字段错误，必须回到 Phase2 修正 manifest 并重跑受影响阶段。Phase4 不能改评级、问题、坐标或结构事实。
+- **校验器是闸门：**本阶段只消费已通过 `validate_eval_results.py` 的 Phase3 结果；完成后必须用 `--require-evidence` 复验。校验器确认每个问题的 `evidenceImage` 与所属 `details.screenshot` 相同、文件存在且位于 `screenshots/`。
+- **不得伪造证据：**原图缺失、路径不一致或位于 `screenshots/` 外时，必须阻断并修复任务输入，不得改用旧红框图、Phase2 标注图、其他截图或临时复制品。
+- **历史产物只读保留：**既有 `screenshots-out/evidence/` 和历史红框文件不删除、不覆盖，也不作为新 Phase4 的输出或回退来源。
 
 ## 执行规则
 
-1. 仅处理 `rating` 为 `达标` / `🟡` / `不达标` / `🔴`、且**已通过 Phase3 评测结果校验**的问题；优秀项、无问题项、标记为“需复核/待回退 Phase2”的问题不生成证据图。页面统计或跨区域关系没有唯一坐标时直接回写同一原图，绝不得伪造红框或写“待人工定位”。
-2. **先按评测维度决定红框展示粒度，禁止按 `elementId` 一刀切：**
-   - `phase3-single_element-eval`：评测与判定仍以当前问题的单一元素为准，`elementId`、原始 `coord` 及原文均不得改变；红框则使用该元素所属完整 `cardId` / `component` 区块坐标，并写入与 Phase2 清单一致的 `evidenceTargetElementId`、`evidenceTargetCoord` 供追溯。找不到元素精确坐标或所属组件/商卡边界时跳过绘制，不得猜测或降级为元素框。
-   - `phase3-card_or_component-eval`：只框选问题所属组件/商卡的完整 `cardId` / `component` 区块坐标；即使 Phase3 为追溯而引用了标题、标签等 `elementId`，也**不得**框选该元素细节。一个组件有多个问题时只保留一个组件框。
-   - `phase3-page_framework-eval`：仅在结果提供经 Phase2 `pageFacts.modules` 或页面区域事实确认的 `evidenceCoord` 时框选该模块/页面区域；页面级结论不得借用任一最小元素坐标，没有唯一坐标时 `evidenceImage` 直接使用原图。
-3. **组件/卡片框必须复用对应单图 Phase2 清单的确认边界：**优先取清单中对应 `cards[].coord`（或 `pageFacts.modules[].coord`），以完整的视觉/功能独立区块为边界；包含该卡/组件的头图、文字、标签和下挂等可见内容，但不吞并相邻卡片、卡间留白或其他模块。不得根据问题元素的局部坐标猜测、外扩或平移组件框。
-4. **一张原始截图只生成一张证据图**：聚合该截图下所有 skill、Tab 与问题的已解析范围，在原图副本上一次性绘制全部红框；这些问题必须回写同一个 `evidenceImage`。不得按 issue、skill、Tab 或元素 ID 复制近似图片。
-5. 每个证据文件都保持原始截图的完整尺寸，仅以红框标出问题上下文；Phase4 不加元素编号、文字标签、半透明遮罩或其他全量标注层。每个红框绘制前必须反向核对：组件/卡片框覆盖完整区块且不侵入相邻区块；单一元素问题必须另有 `evidenceTargetElementId`、`evidenceTargetCoord` 对应真实问题对象。范围无法从对应单图 Phase2 清单解析时跳过绘制并记录原因，不能猜测或将元素框作为替代。
-6. `description` 必须保留 Phase3 的必要判定依据；本阶段不得新造问题理由。供给呈现质量的字段适用性与可见缺失证据、信息冗余的两个独立实体、语义角色与无信息损失证据，必须已存在于对应 `assessmentRows`。
-7. 若 `评测结果校验_*.json` 中 `phase2ReviewRequired=true`，必须停止本阶段与报告阶段；读取同目录 `待回退Phase2复核_*.json`，由 Phase2 对对应单图 manifest 的失败卡/失败行执行本地有界 CV/OCR 重跑，重新通过整页门控后再执行 Phase3。
-8. 运行后必须用 `validate_eval_results.py --require-evidence` 校验：每个已成功解析定位范围的待优化问题都有实际存在的整页红框证据图。
+1. 仅处理 `rating` 为 `达标` / `🟡` / `不达标` / `🔴` 且已通过 Phase3 校验的问题；优秀项和无问题项不需要证据引用。
+2. 同一评测单元内的所有问题都引用该单元同一张 `details.screenshot` 原图。不同截图不得混用。
+3. Phase4 不读取坐标来生成视觉标记；`elementId`、`component`、`coord` 和问题描述继续由 Phase3/Phase2 契约负责。
+4. 脚本会清除当前问题项中遗留的红框专用字段，再写入原图 `evidenceImage`；这只修改结果 JSON，不删除字段曾指向的历史文件。
+5. 若 `评测结果校验_*.json` 中 `phase2ReviewRequired=true`，必须停止本阶段与报告阶段，先按正式流程完成 Phase2 复核并重跑 Phase3。
+6. 执行后必须运行 `validate_eval_results.py --require-evidence`；任一问题未精确引用对应原图时不得交付 Phase5。
 
 ## 执行命令
 
 ```bash
 python3 phase4-issue-evidence/scripts/generate_issue_evidence.py \
   --results <评测结果绝对路径> \
-  --manifest <项目根>/screenshots-out/elements_<截图文件名>.json \
-  --output-dir <项目根>/screenshots-out/evidence/<query>
+  --manifest <项目根>/screenshots-out/elements_<截图文件名>.json
 
 python3 scripts/validate_eval_results.py \
   --manifest-audit <项目根>/screenshots-out/elements_<截图文件名>.audit.json \
@@ -59,3 +51,5 @@ python3 scripts/validate_eval_results.py \
   --audit <评测审计绝对路径> \
   --require-evidence
 ```
+
+`--output-dir` 仅为旧调用兼容参数；即使传入也不会创建目录或写图片。

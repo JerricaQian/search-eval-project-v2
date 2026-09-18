@@ -258,6 +258,8 @@ def portable_task(project_dir: Path, workflow_args: dict[str, Any], run_id: str,
             "evalResultFile": str(artifact_run_dir / "results" / f"评测原始结果_{run_id}.json"),
             "evalAuditFile": str(artifact_run_dir / "results" / f"评测结果校验_{run_id}.json"),
             "phase2ReviewFile": str(artifact_run_dir / "results" / f"待回退Phase2复核_{run_id}.json"),
+            # Frozen for older host adapters. New Phase4 runs never write here;
+            # they reference the selected screenshots directly.
             "issueEvidenceDir": str(project_dir / "screenshots-out" / "evidence" / run_id),
         },
     }
@@ -659,12 +661,31 @@ def validate_completed_result(task: dict[str, Any], result: dict[str, Any]) -> d
     if not isinstance(evidence, list):
         raise ValueError("stageC.evidenceImages:not_a_list")
     evidence_paths = [project_file(value, project_dir, "stageC.evidenceImage") for value in evidence]
-    evidence_root = Path(str(expected_stage_paths.get("issueEvidenceDir", ""))).resolve()
-    for evidence_path in evidence_paths:
-        try:
-            Path(evidence_path).resolve().relative_to(evidence_root)
-        except ValueError as exc:
-            raise ValueError(f"stageC.evidence_outside_task_dir:{evidence_path}") from exc
+    if len(set(evidence_paths)) != len(evidence_paths):
+        raise ValueError("stageC.evidenceImages:duplicates_not_allowed")
+    expected_screenshots = {
+        str(Path(str(item.get("screenshot") or "")).resolve())
+        for item in expected_phase2
+        if isinstance(item, dict) and item.get("screenshot")
+    }
+    issue_evidence: set[str] = set()
+    for result in eval_payload:
+        if not isinstance(result, dict):
+            continue
+        for unit in result.get("units", []):
+            if not isinstance(unit, dict):
+                continue
+            details = unit.get("details") if isinstance(unit.get("details"), dict) else {}
+            original = str(Path(str(details.get("screenshot") or "")).resolve()) if details.get("screenshot") else ""
+            for issue in details.get("issues") or []:
+                if not isinstance(issue, dict) or issue.get("rating") not in {"达标", "不达标", "🟡", "🔴"}:
+                    continue
+                reference = project_file(issue.get("evidenceImage"), project_dir, "issue.evidenceImage")
+                if reference != original or reference not in expected_screenshots:
+                    raise ValueError(f"stageC.issue_evidence_must_equal_task_screenshot:{reference}")
+                issue_evidence.add(reference)
+    if set(evidence_paths) != issue_evidence:
+        raise ValueError("stageC.evidenceImages:must_match_problem_issue_original_screenshots")
     artifacts = {
         "manifests": manifest_paths,
         "manifestAudits": audit_paths,
