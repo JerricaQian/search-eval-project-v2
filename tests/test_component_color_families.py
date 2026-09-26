@@ -114,7 +114,7 @@ class ComponentColorFamiliesTest(unittest.TestCase):
         self.assertEqual([component["componentId"] for component in components], ["C1"])
         self.assertEqual(components[0]["colorFamilies"], ["绿"])
 
-    def test_page_only_measurement_preparation_uses_component_calculator_once(self) -> None:
+    def test_page_only_json_colour_requires_no_measurement_artifact(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             screenshot = root / "screen.png"
@@ -139,12 +139,9 @@ class ComponentColorFamiliesTest(unittest.TestCase):
 
             self.assertEqual(completed.returncode, 0, completed.stderr or completed.stdout)
             prepared = json.loads((out_dir / "phase3-measurements.json").read_text(encoding="utf-8"))
-            self.assertEqual(len(prepared["artifacts"]), 1)
-            result = json.loads(Path(prepared["artifacts"][0]["artifactPath"]).read_text(encoding="utf-8"))
-            self.assertEqual(result["contractVersion"], "component-color-families.v4")
-            self.assertEqual(result["components"][0]["colorFamilies"], ["红", "蓝"])
+            self.assertEqual(prepared["artifacts"], [])
 
-    def test_component_and_page_targets_share_one_pixel_artifact(self) -> None:
+    def test_component_and_page_json_colour_require_no_pixel_artifact(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             screenshot = root / "screen.png"
@@ -171,11 +168,7 @@ class ComponentColorFamiliesTest(unittest.TestCase):
 
             self.assertEqual(completed.returncode, 0, completed.stderr or completed.stdout)
             prepared = json.loads((out_dir / "phase3-measurements.json").read_text(encoding="utf-8"))
-            self.assertEqual(len(prepared["artifacts"]), 2)
-            self.assertEqual(
-                len({item["artifactPath"] for item in prepared["artifacts"]}),
-                1,
-            )
+            self.assertEqual(prepared["artifacts"], [])
 
 
 if __name__ == "__main__":

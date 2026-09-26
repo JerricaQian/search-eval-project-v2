@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Measure canonical seven-colour UI families from the bound screenshot.
+"""Legacy V4 diagnostic for reproducing historical pixel-colour artifacts.
 
-Phase2 supplies component membership, element bounds and exclusion semantics.
-Rendered pixels supply the colour evidence.  The resulting component artifact
-is shared by card and page colour evaluation.
+Formal V5 component/page colour evaluation is JSON-only and must not call this
+script or accept its output as rating evidence. The file is retained solely so
+historical V4 artifacts and regressions remain reproducible.
 """
 from __future__ import annotations
 

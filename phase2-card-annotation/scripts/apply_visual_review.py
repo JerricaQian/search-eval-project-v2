@@ -89,7 +89,7 @@ def load_review(path: Path) -> dict[str, Any]:
     if review.get("screenshot") and base.get("screenshot") and Path(str(review["screenshot"])).resolve() != Path(str(base["screenshot"])).resolve():
         raise ValueError("visual review patch screenshot does not match its base review")
     merged = {**base, **review}
-    for key in ("cards", "modules", "localReviewPaths"):
+    for key in ("cards", "modules", "rejectedModules", "localReviewPaths"):
         if key not in review:
             merged[key] = base.get(key, [])
     # A Phase2 retry normally corrects one rejected card.  Requiring a full
@@ -271,9 +271,14 @@ def apply(facts: dict[str, Any], review: dict[str, Any]) -> dict[str, Any]:
     review_modules = review.get("modules", [])
     if not isinstance(review_modules, list):
         raise ValueError("visual review modules must be a list")
+    rejected_modules = review.get("rejectedModules", [])
+    if not isinstance(rejected_modules, list):
+        raise ValueError("visual review rejectedModules must be a list")
     facts.setdefault("routing", {})["visualReview"] = {
         "source": "main_session_local_read", "cards": observed,
-        "modules": review_modules, "localReviewReadCount": len(observed),
+        "modules": review_modules, "rejectedModules": rejected_modules,
+        "moduleInventoryComplete": "modules" in review,
+        "localReviewReadCount": len(observed),
     }
     facts["routing"]["unresolvedCandidateIds"] = [item["id"] for kind in ("text", "photos") for item in facts["candidates"].get(kind, []) if item.get("route") != "accepted"]
     return facts

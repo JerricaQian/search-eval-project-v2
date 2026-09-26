@@ -35,7 +35,7 @@ def field_schema_hook(context: dict[str, Any]) -> list[dict[str, str]]:
         # current-pixel review, so this accepts that real UI form without
         # treating an arbitrary numeric token as a rating.
         "rating": r"(?:[0-4](?:\.\d+)?|5(?:\.0+)?)(?:\s*分)?|暂无评分",
-        "sales": r"(?:月售|已售|年售|回购|加购).{0,8}\d",
+        "sales": r"(?:月售|已售|年售|回购|加购).{0,8}\d|\d+\+?消费",
     }
     findings = []
     for item in context["semanticItems"]:
@@ -230,13 +230,17 @@ def dense_numeric_atomicity_hook(context: dict[str, Any]) -> list[dict[str, str]
             review.get("role") in {"attached_item", "attachment"}
             or review.get("topologySlot") == "text_attachment"
         )
-        score_token = r"(?<![\d.])(?:[0-4](?:\.\d+)?|5(?:\.0+)?)分"
+        # A duration such as "1分钟前有人预订" contains the same glyphs as a
+        # one-digit score prefix, but "分钟前" is not a rating suffix.
+        score_token = r"(?<![\d.])(?:[0-4](?:\.\d+)?|5(?:\.0+)?)分(?!钟|前)"
         has_misplaced_score = bool(re.search(score_token, text)) and role != "rating" and not attached_service_item
         if (has_misplaced_score or ("暂无评分" in text and role != "rating" and not attached_service_item)):
             reason = "rating_token_must_be_a_standalone_rating_field"
         elif re.search(rf"{score_token}\d", text):
             reason = "rating_is_glued_to_following_numeric_field"
-        elif re.search(r"[^0-9.]\d+(?:\.\d+)?km$", text) and not re.fullmatch(r"\d+(?:\.\d+)?km", text):
+        elif (re.search(r"[^0-9.]\d+(?:\.\d+)?km$", text)
+              and not re.fullmatch(r"\d+(?:\.\d+)?km", text)
+              and not (role == "location" and re.fullmatch(r"距您直线\d+(?:\.\d+)?km", text))):
             reason = "distance_has_non_distance_prefix"
         elif re.search(r"\d{1,2}:\d{3,}", text):
             reason = "session_time_has_extra_trailing_digit"

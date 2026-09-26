@@ -68,12 +68,14 @@ Claude Code、Codex、Catpaw 或其他 Harness 都使用同一个 `MEITUAN_EVAL_
 三者收到相同的 taskPath、prompt、能力门禁、resultPath 和 completionCommand。
 
 不传 `--capability` 时只返回 `awaiting_capability_confirmation`，不宣称可以执行；
-只声明部分能力时返回 `blocked_preflight` 和 `missingCapabilities`。适配器不得把未
-实际具备的能力写入命令。
+只声明部分能力时返回 `blocked_preflight` 和 `missingCapabilities`。能力齐全后还会
+读取 `active_validation_contracts.v3.json`，核验选中 Skill 与当前校验器的版本化
+快照；不匹配时返回 `blocked_contract_drift` 和 `contractPreflight.errors`，不得派发
+Agent、重跑截图或消耗词级评测重试次数。适配器不得把未实际具备的能力写入命令。
 
 ## 3. Harness 只做一件事
 
-先确认宿主实际具备读图、读文件、运行命令和写 JSON 权限。新建 `MEITUAN_EVAL_TASK` 的 `requiredCapabilities` 是强制预检；无法读取图像像素时写 `blockedAt=preflight`、`error=model_vision_not_supported`，不要派发 Phase2。
+先确认宿主实际具备读图、读文件、运行命令和写 JSON 权限。新建 `MEITUAN_EVAL_TASK` 的 `requiredCapabilities` 是强制预检；无法读取图像像素时写 `blockedAt=preflight`、`error=model_vision_not_supported`，不要派发 Phase2。任务还冻结 Phase2 发布所用的 Skill、卡型/归属契约与关键脚本哈希；`prepare-dispatch` 和正式清单提升都会复核这些哈希。并发期间共享逻辑变动时应保留旧尝试，待版本稳定后创建新隔离任务，不得让同一任务混用两个判定版本。
 
 `prepare-dispatch` 返回 `ready_for_dispatch` 后，让一个 Evaluation Agent：
 

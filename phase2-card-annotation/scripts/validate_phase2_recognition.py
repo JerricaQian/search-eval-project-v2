@@ -200,7 +200,7 @@ def gate(facts: dict[str, Any], candidates: dict[str, Any], card_semantics: dict
     # OCR correction and therefore carries its supplied semantic role.
     for source_id, source in accepted_by_id.items():
         review = source.get("visualReview")
-        if isinstance(review, dict) and review.get("visibleStatus", "confirmed") == "confirmed" and review.get("role") in {"title", "price", "rating", "sales", "fulfillment", "location", "tag"}:
+        if isinstance(review, dict) and review.get("visibleStatus", "confirmed") == "confirmed" and review.get("role") in {"title", "subtitle", "price", "rating", "sales", "fulfillment", "location", "tag"}:
             mapped[source_id] = {"sourceId": source_id, "semanticRoleCandidate": review["role"], "status": "confirmed", "evidence": ["main_session_local_visual_read"]}
     errors: list[str] = []
     reprocess: list[str] = []

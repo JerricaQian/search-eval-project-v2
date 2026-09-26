@@ -1,0 +1,101 @@
+{
+  "schemaVersion": "phase3.active-validation-contracts.v2",
+  "policy": "A changed Skill or validator is contract_drift, not a screenshot fact failure. Verify compatibility and publish a full versioned successor; never rewrite this snapshot.",
+  "validator": {
+    "path": "validate_eval_results.py",
+    "sha256": "aa2f435c887ebf6d2849bc15ecea7e16e392ba5d5f52612ce624f1d479d18f13"
+  },
+  "skills": {
+    "phase3-card_or_component-eval/eval-1-supply-completeness": {
+      "path": "phase3-evaluation/dimensions/card-component/skills/eval-1-supply-completeness/SKILL.md",
+      "sha256": "20b6b7e1b74ca23a338974fab9470d14c3dd5d42dc77e5ce2741d86d6faac7c4"
+    },
+    "phase3-card_or_component-eval/eval-2-visual-order-alignment": {
+      "path": "phase3-evaluation/dimensions/card-component/skills/eval-2-visual-order-alignment/SKILL.md",
+      "sha256": "14d499d073b39ecf217f12caa3494b406b8ad9f5b24eedd88ac727fce614129a"
+    },
+    "phase3-card_or_component-eval/eval-3-color-logic": {
+      "path": "phase3-evaluation/dimensions/card-component/skills/eval-3-color-logic/SKILL.md",
+      "sha256": "9abe65224bcd95c326daed1f7712dd7780b1f9d98e16a694105315b94f6e0055"
+    },
+    "phase3-card_or_component-eval/eval-4-element-complexity": {
+      "path": "phase3-evaluation/dimensions/card-component/skills/eval-4-element-complexity/SKILL.md",
+      "sha256": "88f9163722382dbb0a11f1b260ce4a2fe7f85ff55d3331fd955dd46c24e18eaa"
+    },
+    "phase3-card_or_component-eval/eval-5-info-hierarchy": {
+      "path": "phase3-evaluation/dimensions/card-component/skills/eval-5-info-hierarchy/SKILL.md",
+      "sha256": "efdcbced3915dbd769e9881c9a6057f054bb1f0165ad773d1b38ece408eed37d"
+    },
+    "phase3-card_or_component-eval/eval-6-info-partitioning": {
+      "path": "phase3-evaluation/dimensions/card-component/skills/eval-6-info-partitioning/SKILL.md",
+      "sha256": "d9429506bb37433293dc5c13ce7931f4fae89782b65b05b794470e2caecac176"
+    },
+    "phase3-card_or_component-eval/eval-7-info-authenticity": {
+      "path": "phase3-evaluation/dimensions/card-component/skills/eval-7-info-authenticity/SKILL.md",
+      "sha256": "2238675a74b5ebd0976338a7a0da161d42d92c3b3c3127bf0a4b362046821f1c"
+    },
+    "phase3-card_or_component-eval/eval-8-info-redundancy": {
+      "path": "phase3-evaluation/dimensions/card-component/skills/eval-8-info-redundancy/SKILL.md",
+      "sha256": "18d0ca5968ae8d6e4b4712b36367878f274890e2d736d824fb86fb2bd00ba1e3"
+    },
+    "phase3-page_framework-eval/eval-1-supply-module-completeness": {
+      "path": "phase3-evaluation/dimensions/page-framework/skills/eval-1-supply-module-completeness/SKILL.md",
+      "sha256": "c2e2b06948ae9d38fc58bb84167fa93065aa60e3bc29da50253e3210374858d9"
+    },
+    "phase3-page_framework-eval/eval-2-visual-order-alignment": {
+      "path": "phase3-evaluation/dimensions/page-framework/skills/eval-2-visual-order-alignment/SKILL.md",
+      "sha256": "7413fa41f1822f99b4bd555f878fe1cd300166190add688d0db79a83b8a226af",
+      "metadataVersion": "V5.2",
+      "requiredText": [
+        "phase2_json_page_supply_style_inventory",
+        "| 1 | 优秀 |",
+        "| 2 | 达标 |",
+        "| 大于 2 | 不达标 |",
+        "\"styleInventory\""
+      ]
+    },
+    "phase3-page_framework-eval/eval-3-page-color-logic": {
+      "path": "phase3-evaluation/dimensions/page-framework/skills/eval-3-page-color-logic/SKILL.md",
+      "sha256": "0656747d1c63adae3705e40715a5329607e8535395fbf0a442cc043fd9f4c635",
+      "metadataVersion": "V5.1",
+      "requiredText": [
+        "\"colorLogicContractVersion\": \"5.1\"",
+        "| ≤5 | 优秀 |",
+        "| ≥6 | 不达标 |",
+        "\"gradientContributionCount\""
+      ]
+    },
+    "phase3-page_framework-eval/eval-4-static-component-complexity": {
+      "path": "phase3-evaluation/dimensions/page-framework/skills/eval-4-static-component-complexity/SKILL.md",
+      "sha256": "8b5f5756e24e39feaf618ec4dfff2e48a54a14a92d0a8117a1dcce769284cf49"
+    },
+    "phase3-page_framework-eval/eval-5-browsing-flow-smoothness": {
+      "path": "phase3-evaluation/dimensions/page-framework/skills/eval-5-browsing-flow-smoothness/SKILL.md",
+      "sha256": "89426e545c4825f2dbccbd344a894f81ff0fa3db1b5765fab6f141316deab9d3"
+    },
+    "phase3-page_framework-eval/eval-6-info-comparability": {
+      "path": "phase3-evaluation/dimensions/page-framework/skills/eval-6-info-comparability/SKILL.md",
+      "sha256": "0337298e2f0dcf587e6630e951c6533e4a0907aa48317222d190b309d085c37b"
+    },
+    "phase3-page_framework-eval/eval-7-info-redundancy": {
+      "path": "phase3-evaluation/dimensions/page-framework/skills/eval-7-info-redundancy/SKILL.md",
+      "sha256": "d6496fd0b10c1d52a72b8305f156418018f661099e84d48c691eead8fcfd729c"
+    },
+    "phase3-single_element-eval/eval-1-supply-quality-scanner": {
+      "path": "phase3-evaluation/dimensions/single-element/skills/eval-1-supply-quality-scanner/SKILL.md",
+      "sha256": "eca0560369d755a4b8d78afda250042e9257f1a1dfbc908453220ea45ee287f5"
+    },
+    "phase3-single_element-eval/eval-2-color-logic-single-element": {
+      "path": "phase3-evaluation/dimensions/single-element/skills/eval-2-color-logic-single-element/SKILL.md",
+      "sha256": "561419672e430b3cafa0fa29ad76c03053d33b4b7f8eab5f8e122a0f8184a375"
+    },
+    "phase3-single_element-eval/eval-3-element-compliance-scanner": {
+      "path": "phase3-evaluation/dimensions/single-element/skills/eval-3-element-compliance-scanner/SKILL.md",
+      "sha256": "a154158eda74efc5c8fb67a61125e29cb86e7670b1b236d6720a1575020d86c3"
+    },
+    "phase3-single_element-eval/eval-4-info-authenticity-single-element": {
+      "path": "phase3-evaluation/dimensions/single-element/skills/eval-4-info-authenticity-single-element/SKILL.md",
+      "sha256": "0d8b8e5e9c604ffe365c56ec4c4d57f3641433db223352b760120951ccc3a7f7"
+    }
+  }
+}

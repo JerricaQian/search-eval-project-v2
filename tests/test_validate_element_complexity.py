@@ -197,6 +197,40 @@ class ValidateElementComplexityTest(unittest.TestCase):
 
         self.assertTrue(any("fulfillment_must_be_excluded" in error for error in errors))
 
+    def test_atomic_colored_promotion_prefix_counts_despite_coarse_price_role(self) -> None:
+        row = self.valid_row()
+        row["candidateLedger"][1].update({
+            "content": "到手价", "decision": "included_tag", "reason": "独立彩色促销前缀",
+            "styleKey": "text|red|price|无容器|无",
+        })
+        row["includedTagStyles"].append({
+            "elementIds": ["E2"], "content": "到手价", "styleKey": "text|red|price|无容器|无",
+            "countDecision": "独立前缀计1个", "dedupDecision": "逐实例计入",
+        })
+        active = self.active_elements()
+        active["E2"]["content"] = "原文:到手价"
+        errors: list[str] = []
+
+        self.module.require_complexity_coverage(errors, "eval-4/C1", row, active)
+
+        self.assertEqual(errors, [])
+
+    def test_actual_main_price_cannot_be_counted_as_promotion_tag(self) -> None:
+        row = self.valid_row()
+        row["candidateLedger"][1].update({
+            "decision": "included_tag", "reason": "误计主价格",
+            "styleKey": "text|red|price|无容器|无",
+        })
+        row["includedTagStyles"].append({
+            "elementIds": ["E2"], "content": "¥375起", "styleKey": "text|red|price|无容器|无",
+            "countDecision": "计入", "dedupDecision": "逐实例计入",
+        })
+        errors: list[str] = []
+
+        self.module.require_complexity_coverage(errors, "eval-4/C1", row, self.active_elements())
+
+        self.assertTrue(any("core_field_must_not_be_counted" in error for error in errors))
+
     def test_revised_complexity_thresholds(self) -> None:
         self.assertEqual(self.module.complexity_rating(4, 1), "优秀")
         self.assertEqual(self.module.complexity_rating(5, 0), "达标")

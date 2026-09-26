@@ -30,6 +30,35 @@ DOWNHANG_REGIONS = {
 }
 CONSISTENCY_ROLES = {"subtitle", "size", "specification", "product_attribute"}
 TITLE_ROLES = {"title", "subtitle"}
+SEMANTIC_ALIAS_GROUPS = {
+    "no_added_sucrose": ("无蔗糖", "0蔗糖", "零蔗糖", "0添加蔗糖", "零添加蔗糖", "不添加蔗糖"),
+    "type_c": ("type-c", "type c", "typec", "usb-c", "usb c"),
+}
+
+
+def _semantic_alias_hits(text: str) -> dict[str, list[str]]:
+    normalized = text.casefold()
+    return {
+        fact: [alias for alias in aliases if alias.casefold() in normalized]
+        for fact, aliases in SEMANTIC_ALIAS_GROUPS.items()
+        if any(alias.casefold() in normalized for alias in aliases)
+    }
+
+
+def _semantic_alias_candidate(left: dict[str, Any], right: dict[str, Any]) -> dict[str, Any] | None:
+    """Expose common rewordings as candidates without auto-declaring redundancy."""
+    left_hits = _semantic_alias_hits(left["text"])
+    right_hits = _semantic_alias_hits(right["text"])
+    shared = sorted(set(left_hits) & set(right_hits))
+    if not shared:
+        return None
+    return {
+        "left": left,
+        "right": right,
+        "lexicalCue": "semantic_alias_overlap",
+        "sharedFacts": shared,
+        "phase3JudgementRequired": True,
+    }
 
 
 def _normalized_quantity_tokens(text: str) -> set[str]:
@@ -144,13 +173,25 @@ def _title_self_repeat_candidates(item: dict[str, Any]) -> list[dict[str, Any]]:
     text = item["text"]
     fragments = re.findall(r"\d+(?:[-~]\d+)?\s*(?:斤|两|kg|g|ml|l|罐|瓶|包|条|片|个|份|箱)", text.lower())
     repeated = sorted({frag for frag in fragments if fragments.count(frag) > 1})
-    return [{
+    candidates = [{
         "element": item,
         "lexicalCue": "title_internal_repeated_quantified_fragment",
         "repeatedFragment": fragment,
         "occurrences": fragments.count(fragment),
         "phase3JudgementRequired": True,
     } for fragment in repeated]
+    for fact, aliases in _semantic_alias_hits(text).items():
+        if len(aliases) < 2:
+            continue
+        candidates.append({
+            "element": item,
+            "lexicalCue": "title_internal_semantic_alias_repeat",
+            "normalizedFact": fact,
+            "matchedAliases": aliases,
+            "occurrences": len(aliases),
+            "phase3JudgementRequired": True,
+        })
+    return candidates
 
 
 def _quantity_range_conflict_candidate(left: dict[str, Any], right: dict[str, Any]) -> dict[str, Any] | None:
@@ -497,6 +538,14 @@ def derive_relation_candidates(manifest: dict[str, Any]) -> dict[str, Any]:
             size_candidate = _size_code_candidate(left, right)
             if size_candidate:
                 pairs.append(size_candidate)
+            alias_candidate = _semantic_alias_candidate(left, right)
+            if alias_candidate and not any(
+                existing.get("left", {}).get("elementId") == left.get("elementId")
+                and existing.get("right", {}).get("elementId") == right.get("elementId")
+                and existing.get("lexicalCue") == alias_candidate["lexicalCue"]
+                for existing in pairs
+            ):
+                pairs.append(alias_candidate)
         self_repeats = [candidate for item in text_atoms for candidate in _title_self_repeat_candidates(item)]
         authenticity_internal.extend(candidate for item in text_atoms for candidate in _price_semantic_candidates(item))
         authenticity[-1]["internalCandidates"] = authenticity_internal
@@ -519,10 +568,26 @@ def derive_relation_candidates(manifest: dict[str, Any]) -> dict[str, Any]:
                     "tag ↔ price/promotion",
                     "title internal repeated quantified fragments",
                 ],
+                "crossCheckLedger": [
+                    {
+                        "checkType": check_type,
+                        "status": "candidates_enumerated",
+                        "candidateCount": (
+                            len(self_repeats) if check_type == "title internal repeated quantified fragments"
+                            else sum(1 for pair in pairs if pair.get("left", {}).get("region") != pair.get("right", {}).get("region"))
+                        ),
+                    }
+                    for check_type in (
+                        "title/subtitle ↔ basic information",
+                        "title/subtitle ↔ tags/price/promotion",
+                        "tag ↔ price/promotion",
+                        "title internal repeated quantified fragments",
+                    )
+                ],
             },
         })
     return {
-        "contractVersion": "phase3.relation-candidates.v3",
+        "contractVersion": "phase3.relation-candidates.v4",
         "query": manifest.get("query", ""),
         "authenticityCandidates": authenticity,
         "crossCardAuthenticityCandidates": _cross_card_authenticity_candidates(merchant_profiles),

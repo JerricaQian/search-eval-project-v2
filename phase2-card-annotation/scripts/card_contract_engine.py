@@ -2,9 +2,10 @@
 """Evaluate result-card facts against explicit recognition contracts.
 
 The engine is deterministic and screenshot-local. It never consumes golden
-answers or search-word-specific expected types. A known type must satisfy its
-minimum structural contract; otherwise explicit advertising wins, then the
-heterogeneous fallback preserves the stable rendered unit.
+answers or search-word-specific expected types. The title-semantic stage may
+establish a known family when compatible reviewed topology proves its shape;
+otherwise a known type must satisfy its minimum structural contract. Explicit
+advertising then precedes the heterogeneous fallback.
 """
 from __future__ import annotations
 
@@ -16,6 +17,78 @@ from phase2_contract import fulfillment_semantic_kind
 
 
 KNOWN_RESULT_TYPES = known_result_types()
+
+
+def _title_text(card: dict[str, Any], facts: dict[str, Any]) -> tuple[str, str]:
+    """Read the title owned by this card, never the query or neighbouring copy.
+
+    A current-pixel title field is strongest. Without one, accept a single
+    upper-card OCR title candidate; multiple plausible lines are ambiguous and
+    deliberately leave classification to the content/topology resolver.
+    """
+    coord = card.get("coord", [])
+    if not isinstance(coord, list) or len(coord) != 4:
+        return "", ""
+    card_id = card.get("id")
+    texts = [
+        item for item in facts.get("candidates", {}).get("text", [])
+        if _usable(item) and isinstance(item.get("coord"), list)
+        and len(item["coord"]) == 4 and _overlap(item["coord"], coord)
+    ]
+    reviewed = [
+        item for item in texts
+        if isinstance(item.get("visualReview"), dict)
+        and item["visualReview"].get("cardId") == card_id
+        and item["visualReview"].get("role") == "title"
+        and item["visualReview"].get("topologySlot") in {"title", "entity_title"}
+        and str(item.get("text", "")).strip()
+    ]
+    if len(reviewed) == 1:
+        return str(reviewed[0]["text"]).strip(), str(reviewed[0].get("id", ""))
+    if reviewed:
+        return "", ""
+    x, y, width, height = coord
+    candidates = [
+        item for item in texts
+        if not item.get("visualReview")
+        and item["coord"][1] < y + max(100, height * 0.42)
+        and (item["coord"][0] > x + width * 0.18 or item["coord"][2] > width * 0.40)
+        and len(_meaningful(str(item.get("text", "")))) >= 3
+        and not re.search(r"[¥￥]\s*\d|\d+(?:\.\d+)?\s*(?:元|公里|km|分钟|分|条)|月售|已售|起送|配送费", str(item.get("text", "")), re.I)
+    ]
+    if len(candidates) == 1:
+        return str(candidates[0]["text"]).strip(), str(candidates[0].get("id", ""))
+    return "", ""
+
+
+def title_semantic_family(card: dict[str, Any], facts: dict[str, Any]) -> dict[str, str]:
+    """High-precision, title-only card family; empty means use card contents.
+
+    Merchant attachment variants and the primary-point result position are
+    intentionally *not* inferred from a name. Those require topology/context.
+    Domain terms must describe the title's head entity, rather than a product
+    modifier such as "酒店用品" or "电影周边".
+    """
+    title, source_id = _title_text(card, facts)
+    if not title:
+        return {"family": "", "title": "", "sourceId": ""}
+    compact = re.sub(r"\s+", "", title)
+    # Explicit bundles precede lodging, since their titles often contain 酒店.
+    if re.search(r"酒店套餐|度假套餐|自由行|跟团游|\d+天\d+晚|机票.{0,12}酒店", compact):
+        family = "度假酒店套餐卡片"
+    elif re.search(r"(?:酒店|宾馆|客栈|民宿|旅馆|公寓酒店)(?:[（(].*[）)])?$", compact) or re.search(r"(?:酒店|民宿|宾馆)[（(]", compact):
+        family = "酒店卡片"
+    elif re.search(r"演唱会|音乐会|话剧|舞台剧|脱口秀|歌剧|音乐剧|电影《|影片《|《[^》]+》(?:电影|演出|话剧)|(?:演出|电影|观影)门票", compact):
+        family = "演出电影卡片"
+    elif re.search(r"(?:地铁站|大学|医院|景区|主题乐园|博物馆|公园|机场|火车站)$", compact):
+        family = "主点卡片"
+    elif re.search(r"(?:餐厅|饭店|餐馆|火锅店|烧烤店|便利店|超市|购物中心|商场|美发店|理发店|健身房|洗浴中心)$", compact):
+        family = "商家卡片"
+    elif re.search(r"(?:耳机|手机|充电器|数据线|洗发水|面膜|纸巾|牛奶|啤酒|饼干|蛋糕|药片|颗粒|胶囊)(?:[（(].*[）)])?$", compact) or re.search(r"\d+(?:\.\d+)?\s*(?:g|kg|ml|L|片|粒|瓶|盒|包|袋|支|罐|听)(?:[xX*×]\d+)?$", compact, re.I):
+        family = "商品卡片"
+    else:
+        family = ""
+    return {"family": family, "title": title, "sourceId": source_id}
 
 
 def _overlap(box: list[int], container: list[int]) -> bool:
@@ -202,6 +275,13 @@ def extract_features(card: dict[str, Any], facts: dict[str, Any], structure_bloc
         re.search(r"三居|租房|整套\s*\d+\s*室", joined)
         and re.search(r"24小时热水|免费停车|洗衣机|寄存行李|立即确认|可洗衣", joined)
     )
+    # A duration in a promotion ("30天低价") is not an itinerary. Package
+    # summaries describe a stay/trip or an explicitly bundled set of services.
+    package_summary_text = "\n".join(
+        str(item.get("text", "")) for item in texts
+        if (item.get("visualReview") or {}).get("role") not in {"promotion", "price", "tag", "location"}
+        and (item.get("visualReview") or {}).get("topologySlot") not in {"tag", "price"}
+    )
     features = {
         "stable_boundary": card.get("status", "confirmed") == "confirmed" and isinstance(coord, list) and len(coord) == 4 and width > 0 and height > 0,
         "has_visible_text": bool(texts),
@@ -227,7 +307,7 @@ def extract_features(card: dict[str, Any], facts: dict[str, Any], structure_bloc
         "performance_schedule": bool(re.search(r"近期场次|开售|抢票|\d{1,2}:\d{2}|\d{4}[-/.年]\d{1,2}", joined)),
         "poster_media": poster_media,
         "package_identity": bool(re.search(r"旅游|自由行|跟团游|酒店套餐|度假套餐", joined)),
-        "package_summary": bool(re.search(r"\d+天|出发|住[:：]|景[:：]|享[:：]|吃[:：]|行[:：]|无购物|无自费|先囤后兑|过期自动退", joined)),
+        "package_summary": bool(re.search(r"\d+天(?:\d+晚|游|行程|套餐|度假)|出发|住[:：]|景[:：]|享[:：]|吃[:：]|行[:：]|无购物|无自费|先囤后兑|过期自动退", package_summary_text)),
         # 景点 POI 结果常以具体业态而非“景点”二字呈现，例如主题乐园、
         # 漂流或某某乐园；这些不是商品卡的商品规格信号。
         "poi_identity": bool(re.search(r"地铁站|大学|商场|医院|景点|度假区|公立三甲|主题乐园|(?:^|[^\u4e00-\u9fff])乐园|漂流", joined)),

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import subprocess
 import sys
 import tempfile
@@ -76,6 +77,7 @@ class PortableTaskProtocolTest(unittest.TestCase):
         source.mkdir()
         project.mkdir()
         (project / "phase3-evaluation").symlink_to(PROJECT_DIR / "phase3-evaluation", target_is_directory=True)
+        (project / "phase2-card-annotation").symlink_to(PROJECT_DIR / "phase2-card-annotation", target_is_directory=True)
         for screen in range(1, image_count + 1):
             Image.new("RGB", (100, 100), "white").save(source / f"露营_全部_{screen}.png")
         completed = subprocess.run(
@@ -213,6 +215,40 @@ class PortableTaskProtocolTest(unittest.TestCase):
             self.assertEqual(envelope["status"], "ready_for_dispatch")
             self.assertEqual(envelope["input"]["mode"], "task_path_only")
 
+    def test_prepare_dispatch_blocks_contract_snapshot_drift_before_agent(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            payload = self.prepare(Path(tmp))
+            task_path = Path(payload["portableTask"]["taskPath"])
+            task = json.loads(task_path.read_text())
+            task["validationContractSnapshotSha256"] = "0" * 64
+            task_path.write_text(json.dumps(task, ensure_ascii=False))
+            command = [sys.executable, str(CLI_PATH), "prepare-dispatch", "--task", str(task_path), "--host", "codex"]
+            for capability in ("readImagePixels", "readFiles", "runCommands", "writeJson"):
+                command.extend(["--capability", capability])
+            completed = subprocess.run(command, check=False, capture_output=True, text=True)
+            self.assertEqual(completed.returncode, 2)
+            envelope = json.loads(completed.stdout)
+            self.assertEqual(envelope["status"], "blocked_contract_drift")
+            self.assertIn("task_contract_snapshot_changed", envelope["contractPreflight"]["errors"])
+
+    def test_prepare_dispatch_blocks_phase2_publication_drift_before_agent(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            payload = self.prepare(Path(tmp))
+            task_path = Path(payload["portableTask"]["taskPath"])
+            task = json.loads(task_path.read_text())
+            relative = "phase2-card-annotation/references/semantic_ownership_contract.v2.json"
+            self.assertIn(relative, task["phase2PublicationSnapshot"])
+            task["phase2PublicationSnapshot"][relative] = "0" * 64
+            task_path.write_text(json.dumps(task, ensure_ascii=False))
+            command = [sys.executable, str(CLI_PATH), "prepare-dispatch", "--task", str(task_path), "--host", "codex"]
+            for capability in ("readImagePixels", "readFiles", "runCommands", "writeJson"):
+                command.extend(["--capability", capability])
+            completed = subprocess.run(command, check=False, capture_output=True, text=True)
+            self.assertEqual(completed.returncode, 2)
+            envelope = json.loads(completed.stdout)
+            self.assertEqual(envelope["status"], "blocked_contract_drift")
+            self.assertIn(f"phase2_publication_file_changed:{relative}", envelope["contractPreflight"]["errors"])
+
     def test_claude_compatibility_files_delegate_to_host_neutral_contracts(self) -> None:
         agent_adapter = (PROJECT_DIR / ".claude/agents/phase234-query-pipeline.md").read_text()
         schema_adapter = json.loads(
@@ -248,15 +284,52 @@ class PortableTaskProtocolTest(unittest.TestCase):
                 "contractVersion": "phase2.current-image-calibration.v1",
                 "reviewedAgainstCurrentPixels": True,
             }))
+            review = attempt / "visual-review.json"
+            review.write_text(json.dumps({"screenshot": str(screenshot.resolve()), "completeCurrentPixelReview": True}))
+            ownership_audit = attempt / "semantic-ownership-audit.json"
+            ownership_audit.write_text(json.dumps({
+                "contractVersion": "phase2.semantic-ownership.v2",
+                "valid": True, "errors": [], "screenshot": str(screenshot.resolve()),
+                "screenshotSha256": hashlib.sha256(screenshot.read_bytes()).hexdigest(),
+                "manifestSha256": hashlib.sha256(manifest.read_bytes()).hexdigest(),
+                "reviewSha256": hashlib.sha256(review.read_bytes()).hexdigest(),
+            }))
+            contract = root / "publication-contract.json"
+            contract.write_text('{"version":1}')
+            task_path = root / "task.json"
+            task_path.write_text(json.dumps({
+                "projectDir": str(root),
+                "phase2PublicationSnapshot": {
+                    "publication-contract.json": hashlib.sha256(contract.read_bytes()).hexdigest(),
+                },
+            }))
             final = root / "final"
             command = [
-                sys.executable, str(PROMOTE_PATH), "--screenshot", str(screenshot),
+                sys.executable, str(PROMOTE_PATH), "--task", str(task_path), "--screenshot", str(screenshot),
                 "--manifest", str(manifest), "--manifest-audit", str(manifest_audit),
                 "--recognition-audit", str(recognition_audit),
+                "--ownership-audit", str(ownership_audit),
+                "--visual-review", str(review),
                 "--output-manifest", str(final / "manifest.json"),
                 "--output-audit", str(final / "manifest.audit.json"),
                 "--output-recognition-audit", str(final / "recognition.audit.json"),
             ]
+            stale = json.loads(ownership_audit.read_text())
+            stale["manifestSha256"] = "0" * 64
+            ownership_audit.write_text(json.dumps(stale))
+            rejected = subprocess.run(command, check=False, capture_output=True, text=True)
+            self.assertNotEqual(rejected.returncode, 0)
+            self.assertFalse((final / "manifest.json").exists())
+            stale["manifestSha256"] = hashlib.sha256(manifest.read_bytes()).hexdigest()
+            ownership_audit.write_text(json.dumps(stale))
+            task = json.loads(task_path.read_text())
+            task["phase2PublicationSnapshot"]["publication-contract.json"] = "0" * 64
+            task_path.write_text(json.dumps(task))
+            drifted = subprocess.run(command, check=False, capture_output=True, text=True)
+            self.assertNotEqual(drifted.returncode, 0)
+            self.assertIn("phase2_publication_contract_drift", drifted.stderr)
+            task["phase2PublicationSnapshot"]["publication-contract.json"] = hashlib.sha256(contract.read_bytes()).hexdigest()
+            task_path.write_text(json.dumps(task))
             subprocess.run(command, check=True, capture_output=True, text=True)
             self.assertTrue((final / "manifest.json").is_file())
             repeated = subprocess.run(command, check=False, capture_output=True, text=True)
@@ -853,3 +926,28 @@ class PortableTaskProtocolTest(unittest.TestCase):
         self.assertEqual(state["queries"][0]["status"], "pending")
         self.assertEqual(state["queries"][0]["attempts"][0]["status"], "pending")
         self.assertEqual(len(state["queries"][0]["attempts"]), 1)
+
+    def test_contract_drift_does_not_consume_batch_retry_budget(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            payload = self.prepare(Path(tmp), run_id="batch-contract.q1")
+            task_path = Path(payload["portableTask"]["taskPath"])
+            task = json.loads(task_path.read_text())
+            result_path = Path(task["resultPath"])
+            result_path.write_text(json.dumps({
+                "ok": False, "query": "露营", "stageA": {}, "stageB": {}, "stageC": {}, "stageD": {},
+                "blockedAt": "stageB", "error": "contract_drift:page_color_skill_validator_mismatch",
+            }, ensure_ascii=False))
+            subprocess.run([sys.executable, str(CLI_PATH), "finalize-evaluate", "--task", str(task_path),
+                            "--result", str(result_path)], check=True, capture_output=True, text=True)
+            prepared = subprocess.run([
+                sys.executable, str(CLI_PATH), "prepare-batch", "--project-dir", str(task_path.parents[2]),
+                "--batch-id", "batch-contract.q1", "--max-query-attempts", "3", "--task", str(task_path),
+            ], check=True, capture_output=True, text=True)
+            state_path = Path(json.loads(prepared.stdout)["statePath"])
+            advanced = subprocess.run([sys.executable, str(CLI_PATH), "advance-batch", "--state", str(state_path)],
+                                      check=False, capture_output=True, text=True)
+            self.assertEqual(advanced.returncode, 2)
+            state = json.loads(Path(json.loads(advanced.stdout)["statePath"]).read_text())
+            self.assertEqual(state["status"], "blocked_contract_drift")
+            self.assertEqual(state["queries"][0]["status"], "contract_blocked")
+            self.assertEqual(len(state["queries"][0]["attempts"]), 1)

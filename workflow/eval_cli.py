@@ -46,6 +46,21 @@ EVAL_TARGET_RESOLVER = load_module(
     "phase3-evaluation/common/routing/resolve_eval_targets.py",
     "search_eval_target_resolver",
 )
+CONTRACT_PREFLIGHT = load_module("scripts/check_eval_contracts.py", "search_eval_contract_preflight")
+ACTIVE_CONTRACT_REGISTRY = Path("phase3-evaluation/common/contracts/active_validation_contracts.v3.json")
+PHASE2_PUBLICATION_FILES = (
+    "card-type-registry.v1.json",
+    "phase2-card-annotation/SKILL.md",
+    "phase2-card-annotation/references/card_recognition_contracts.v1.json",
+    "phase2-card-annotation/references/semantic_ownership_contract.v2.json",
+    "phase2-card-annotation/scripts/apply_visual_review.py",
+    "phase2-card-annotation/scripts/map_result_card_semantics.py",
+    "phase2-card-annotation/scripts/build_phase2_manifest.py",
+    "phase2-card-annotation/scripts/semantic_ownership.py",
+    "phase2-card-annotation/scripts/run_phase2_recognition.py",
+    "phase2-card-annotation/scripts/validate_element_manifest.py",
+    "workflow/promote_phase2_attempt.py",
+)
 
 
 def emit(payload: dict[str, Any], exit_code: int = 0) -> int:
@@ -246,6 +261,7 @@ def portable_task(project_dir: Path, workflow_args: dict[str, Any], run_id: str,
     result_path = run_dir / "agent-result.json"
     protocol = TASK_PROTOCOL
     evaluation_scope = resolve_evaluation_scope(project_dir, workflow_args)
+    contract_snapshot = hashlib.sha256((project_dir / ACTIVE_CONTRACT_REGISTRY).read_bytes()).hexdigest()
     artifact_run_dir = project_dir / ".artifacts" / "过程文件-评测结果与审计" / str(workflow_args["batchId"]) / run_id
     # The resolved scope is the source of truth for the agent.  Keep the
     # original selection too, as an auditable record of the user's request.
@@ -274,6 +290,7 @@ def portable_task(project_dir: Path, workflow_args: dict[str, Any], run_id: str,
             str(project_dir / "workflow/contracts/phase234-query-pipeline.md"),
             str(project_dir / "workflow/contracts/evaluation-result.schema.json"),
             str(project_dir / "workflow/screenshot-identity.schema.json"),
+            str(project_dir / "phase2-card-annotation/references/semantic_ownership_contract.v2.json"),
         ],
         "dispatch": {
             "protocol": DISPATCH_PROTOCOL,
@@ -290,6 +307,11 @@ def portable_task(project_dir: Path, workflow_args: dict[str, Any], run_id: str,
         },
         "requiredReads": [str(project_dir / path) for path in evaluation_scope["requiredReads"]],
         "evalTargets": evaluation_scope["evalTargets"],
+        "validationContractSnapshotSha256": contract_snapshot,
+        "phase2PublicationSnapshot": {
+            relative: hashlib.sha256((project_dir / relative).read_bytes()).hexdigest()
+            for relative in PHASE2_PUBLICATION_FILES if (project_dir / relative).is_file()
+        },
         "resultPath": str(result_path),
         "completionCommand": [
             sys.executable,
@@ -302,6 +324,7 @@ def portable_task(project_dir: Path, workflow_args: dict[str, Any], run_id: str,
         ],
         "hostInstructions": [
             "Before dispatch, verify every requiredCapabilities value. If image pixels cannot be read in this host, write a blocked result with blockedAt=preflight and error=model_vision_not_supported; do not start Phase2 or Phase3.",
+            "Do not dispatch when prepare-dispatch returns blocked_contract_drift. A Skill/validator mismatch is a system contract issue, not a failed screenshot attempt; preserve prior Stage A facts and retry budget.",
             "Before Phase3, read every requiredReads file from disk exactly once. The task evalTargets are the only permitted Phase3 Skills; do not read or rate an unselected leaf Skill.",
             "Read knowledge-index.md and its directly referenced common rules as required by the pipeline, then read each selected target's contractPath and skillPath. Do not infer a Skill path from user text.",
             "Use workflowArgs.evaluationScope/evalTargets as immutable input. If a required file is unavailable or the target set cannot be followed, return the appropriate blocked Stage instead of substituting another Skill.",
@@ -352,6 +375,11 @@ def command_prepare_dispatch(args: argparse.Namespace) -> int:
             status = "blocked_preflight"
         else:
             status = "ready_for_dispatch"
+        contract_preflight = None
+        if status == "ready_for_dispatch":
+            contract_preflight = CONTRACT_PREFLIGHT.audit_task(task, project_dir)
+            if not contract_preflight["valid"]:
+                status = "blocked_contract_drift"
         claude_definition = project_dir / ".claude/agents/evaluation-agent.md"
         binding = {
             "mode": "native_agent_definition" if args.host == "claude" else "portable_task",
@@ -359,7 +387,7 @@ def command_prepare_dispatch(args: argparse.Namespace) -> int:
             "definitionFile": str(claude_definition) if args.host == "claude" else "",
         }
         payload = {
-            "ok": status != "blocked_preflight",
+            "ok": status not in {"blocked_preflight", "blocked_contract_drift"},
             "protocol": DISPATCH_PROTOCOL,
             "host": args.host,
             "status": status,
@@ -370,11 +398,12 @@ def command_prepare_dispatch(args: argparse.Namespace) -> int:
             "requiredCapabilities": required,
             "declaredCapabilities": sorted(declared),
             "missingCapabilities": missing,
+            "contractPreflight": contract_preflight,
             "binding": binding,
             "resultPath": str(task.get("resultPath") or ""),
             "completionCommand": task.get("completionCommand", []),
         }
-        return emit(payload, 2 if status == "blocked_preflight" else 0)
+        return emit(payload, 2 if status in {"blocked_preflight", "blocked_contract_drift"} else 0)
     except (OSError, ValueError, json.JSONDecodeError) as exc:
         return emit({"ok": False, "protocol": DISPATCH_PROTOCOL, "host": args.host, "error": str(exc)}, 2)
 
@@ -1013,6 +1042,7 @@ def command_advance_batch(args: argparse.Namespace) -> int:
         failed_queries: list[str] = []
         completed_queries: list[str] = []
         pending_queries: list[str] = []
+        contract_blocked_queries: list[str] = []
         next_queries = []
 
         for raw_entry in state["queries"]:
@@ -1051,6 +1081,12 @@ def command_advance_batch(args: argparse.Namespace) -> int:
             elif latest["status"] == "pending":
                 entry["status"] = "pending"
                 pending_queries.append(entry["query"])
+            elif latest["status"] == "blocked" and latest["error"].startswith("contract_drift:"):
+                # A shared Skill/validator mismatch is not a failed screenshot
+                # attempt. Preserve this run and retry budget for in-place
+                # Stage B repair after a versioned contract fix.
+                entry["status"] = "contract_blocked"
+                contract_blocked_queries.append(entry["query"])
             elif len(attempts) >= int(state["maxQueryAttempts"]):
                 entry["status"] = "abandoned"
                 failed_queries.append(entry["query"])
@@ -1059,7 +1095,9 @@ def command_advance_batch(args: argparse.Namespace) -> int:
                 retry_queries.append(entry["query"])
             next_queries.append(entry)
 
-        if pending_queries:
+        if contract_blocked_queries:
+            status = "blocked_contract_drift"
+        elif pending_queries:
             status = "awaiting_receipts"
         elif retry_queries:
             status = "retry_required"
@@ -1080,6 +1118,7 @@ def command_advance_batch(args: argparse.Namespace) -> int:
             "status": status,
             "completedQueries": completed_queries,
             "pendingQueries": pending_queries,
+            "contractBlockedQueries": contract_blocked_queries,
             "retryQueries": retry_queries,
             "failedQueries": failed_queries,
             "readyForPhase5": status in {"ready_for_phase5", "ready_for_partial_phase5"},

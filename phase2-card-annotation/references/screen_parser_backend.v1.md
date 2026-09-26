@@ -43,7 +43,7 @@ OCR 合并行跨越多个颜色段、容器或明显间隔时，拆成多个元�
 
 ## 输出要求
 
-每个发布元素保留 `coord`、来源后端及关联证据。所有非图片元素必须有 `render`、`textFacts` 和 `visual`；`visual` 至少包含实测 `textColor`、`backgroundColor`、`colorRole`、`colorEvidence`。图片保留准确坐标与排除策略，由 Phase3 在图片 mask 后做统计。
+每个发布元素保留 `coord`、来源后端及关联证据。所有非图片元素必须有 `render`、`textFacts` 和 `visual`；`visual` 至少包含实测 `textColor`、`backgroundColor`、`colorRole`、`colorEvidence`。图片保留准确坐标与排除策略；组件与页面色彩在 Phase3 直接排除图片，不对图片 mask 或原图像素重新取色。
 
 ## 接入状态与许可
 

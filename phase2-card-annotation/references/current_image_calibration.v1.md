@@ -39,6 +39,8 @@
   "screenshot": "/absolute/path/to/current.png",
   "completeCurrentPixelReview": true,
   "localReviewPaths": [],
+  "modules": [],
+  "rejectedModules": [],
   "cards": [
     {
       "cardId": "C2",
@@ -63,6 +65,8 @@
 ```
 
 `completeCurrentPixelReview=true` 是对本截图整图一次、逐项核对全部活动元素的明确声明；不是“只复核了 `cards[]` 里修正项”。每张卡必须使用根目录 `card-type-registry.v1.json` 中的 `cardTypeCandidate`，并至少声明一个拓扑区域；完整可见的图文下挂商家卡必须声明 `merchant_head`、`merchant_info`、`attached_goods` 及每个可见 `attachedItems`。结果流尾卡被视口自然截断、下挂完全未露出时，只声明已看见的卡头/商家区域并由同组完整卡继承卡型，不得补造屏外 `attached_goods`、图片 ID、文字或 `attachedItems`；这类不可见缺口不阻断 Phase3。`attachedItems[].visibleStatus="naturally_cropped"` 只说明该子项被横向/纵向边缘截断，不降低完整可见商家卡的结构状态。`localReviewPaths` 仅列实际读取的局部裁图，必须唯一，最多 11 个。
+
+显式 `modules[]` 是当前像素确认的完整页面模块库存；未列入的 CV 候选不进入清单，并作为非阻断提示留在归属审计中。对重要误报可用 `rejectedModules[]` 补充 `moduleType`、`coord` 和基于当前像素的 `reason`，但不要求逐个驳回 CV 噪声。未提供 `modules` 的旧复核继续走 CV 兼容路径，不能将其解释为“已确认页面没有模块”。文字/图文下挂的每个可见实体由 `attachedItems[].itemIndex` 指定唯一所有者；纵向换行、价格和门槛不改变同项归属。复核确认为 `异构卡` 时，还须提供 `heterogeneousEvidence.distinctStructure` 及非空 `whyKnownCardTypesFail[]`，说明正面结构证据，不能仅写“其他类型不匹配”。这些复核事实由 `semantic_ownership.py` 在冻结前交叉验收。
 
 将记录作为 `--visual-review` 回灌 `run_phase2_recognition.py`。最终 manifest 和校准审计会在同一次命令中一起重建；不得在 manifest 或审计中手改通过状态。`<pythonBin>` 由调用方注入；可移植任务使用 `workflowArgs.pythonBin`：
 

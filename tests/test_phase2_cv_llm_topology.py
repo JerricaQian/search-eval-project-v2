@@ -3,6 +3,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from PIL import Image
 
@@ -13,8 +14,8 @@ sys.path.insert(0, SCRIPTS)
 
 from apply_visual_review import apply  # noqa: E402
 from build_phase2_manifest import append_item_groups, card_local_semantics  # noqa: E402
-from build_search_result_candidates import _repeated_merchant_head_cards  # noqa: E402
-from card_contract_engine import extract_features  # noqa: E402
+from build_search_result_candidates import _module_candidates, _repeated_merchant_head_cards, build_candidates  # noqa: E402
+from card_contract_engine import extract_features, title_semantic_family  # noqa: E402
 from card_type_registry import load_registry, validate_phase2_taxonomy  # noqa: E402
 from map_result_card_semantics import map_cards  # noqa: E402
 from run_phase2_recognition import merge_reviewed_card_boundaries, run, sha256_file, validate_candidate_bundle, validate_cv_llm_visual_review  # noqa: E402
@@ -27,6 +28,123 @@ sys.path.remove(SCRIPTS)
 
 
 class CvLlmTopologyTests(unittest.TestCase):
+    def test_reviewed_list_boundary_excludes_pre_results_card_seed(self):
+        facts = {
+            "contractVersion": "phase2.cv-facts.v1", "screenshot": "/tmp/page.png",
+            "viewport": {"width": 400, "height": 800},
+            "candidates": {"text": [], "photos": []},
+            "routing": {"visualReview": {"modules": [
+                {"moduleType": "sort_filter", "coord": [0, 260, 400, 40], "visibleStatus": "confirmed"},
+                {"moduleType": "result_list", "coord": [0, 320, 400, 480], "visibleStatus": "confirmed"},
+            ]}},
+        }
+        structure = {"contractVersion": "phase2.search-page-structure.v1", "blocks": [
+            {"id": "B1", "coord": [0, 100, 400, 150], "layoutCandidate": "left_image_right_text", "confidence": 0.9},
+            {"id": "B2", "coord": [0, 350, 400, 170], "layoutCandidate": "left_image_right_text", "confidence": 0.9},
+        ]}
+        result = build_candidates(facts, structure)
+        self.assertEqual([card["seedBlockId"] for card in result["resultCards"]], ["B2"])
+
+    def test_review_cannot_reinsert_a_pre_results_module_as_result_card(self):
+        with tempfile.TemporaryDirectory() as temp:
+            review_path = Path(temp) / "review.json"
+            review_path.write_text(json.dumps({
+                "completeCurrentPixelReview": True,
+                "modules": [{"moduleType": "result_list", "coord": [0, 320, 400, 300], "visibleStatus": "confirmed"}],
+                "cards": [{
+                    "cardId": "C1", "coord": [0, 100, 400, 160], "cardTypeCandidate": "商品卡片",
+                    "topology": {"regions": [
+                        {"slot": "head_media", "coord": [0, 100, 100, 100]},
+                        {"slot": "title", "coord": [110, 100, 200, 30]},
+                        {"slot": "price", "coord": [110, 170, 100, 30]},
+                    ], "attachedItems": []},
+                }],
+            }), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "reviewed_result_card_before_confirmed_result_list"):
+                validate_cv_llm_visual_review(review_path)
+
+    def test_pre_results_main_point_uses_title_before_block_content(self):
+        facts = {"viewport": {"width": 400, "height": 600}, "candidates": {
+            "text": [
+                {"id": "T1", "text": "北京大学", "coord": [145, 155, 190, 30], "route": "accepted"},
+                {"id": "T2", "text": "校园地址与简介", "coord": [145, 275, 190, 25], "route": "accepted"},
+                {"id": "T3", "text": "综合排序", "coord": [40, 405, 110, 30], "route": "accepted"},
+            ], "photos": [{"id": "P1", "coord": [20, 175, 100, 100], "route": "accepted"}],
+        }}
+        structure = {"blocks": [
+            {"id": "B1", "coord": [0, 140, 400, 180], "layoutCandidate": "left_image_right_text"},
+            {"id": "B2", "coord": [0, 390, 400, 50], "layoutCandidate": "text_only"},
+        ]}
+        modules = _module_candidates(facts, structure)
+        self.assertIn("main_poi_card", [module["module"] for module in modules])
+
+    def test_title_semantics_uses_owned_title_not_promotions_or_query(self):
+        card = {"id": "C2", "coord": [0, 100, 400, 230]}
+        facts = {"candidates": {"text": [
+            {"id": "T1", "text": "季枫国际酒店(古城地铁站店)", "coord": [120, 110, 260, 35], "route": "accepted",
+             "visualReview": {"cardId": "C2", "role": "title", "topologySlot": "title"}},
+            {"id": "T2", "text": "30天低价｜立减186", "coord": [120, 270, 200, 25], "route": "accepted",
+             "visualReview": {"cardId": "C2", "role": "promotion", "topologySlot": "tag"}},
+            {"id": "T3", "text": "电影《错位》", "coord": [120, 110, 200, 25], "route": "accepted",
+             "visualReview": {"cardId": "C1", "role": "title", "topologySlot": "title"}},
+        ]}}
+        self.assertEqual(title_semantic_family(card, facts)["family"], "酒店卡片")
+        self.assertEqual(title_semantic_family(card, facts)["sourceId"], "T1")
+        facts["candidates"]["text"][0]["text"] = "酒店用品收纳盒"
+        self.assertEqual(title_semantic_family(card, facts)["family"], "")
+
+    def test_hotel_title_outweighs_promotion_duration_and_product_shape(self):
+        references = ROOT / "phase2-card-annotation" / "references"
+        load = lambda name: json.loads((references / name).read_text(encoding="utf-8"))
+        facts = {"contractVersion": "phase2.cv-facts.v1", "screenshot": "/tmp/hotel.png", "viewport": {"width": 400, "height": 600}, "candidates": {
+            "photos": [{"id": "P1", "coord": [10, 110, 90, 140], "route": "accepted"}],
+            "text": [
+                {"id": "T1", "text": "季枫国际酒店(古城地铁站店)", "coord": [120, 110, 260, 34], "route": "accepted",
+                 "visualReview": {"cardId": "C1", "role": "title", "topologySlot": "title"}},
+                {"id": "T2", "text": "¥219起", "coord": [270, 200, 100, 25], "route": "accepted",
+                 "visualReview": {"cardId": "C1", "role": "price", "topologySlot": "price"}},
+                {"id": "T3", "text": "30天低价｜立减186", "coord": [120, 260, 200, 25], "route": "accepted",
+                 "visualReview": {"cardId": "C1", "role": "promotion", "topologySlot": "tag"}},
+            ],
+        }}
+        candidates = {"structureBlocks": [], "resultCards": [{
+            "id": "C1", "coord": [0, 100, 400, 220], "status": "confirmed",
+            "evidence": ["repeated_left_image_right_text_seed"], "reviewedCardType": "商品卡片",
+            "reviewedTopology": {"regions": [
+                {"slot": "head_media"}, {"slot": "title"}, {"slot": "price"},
+            ], "attachedItems": []},
+        }]}
+        with patch("map_result_card_semantics.classify_card_types", side_effect=AssertionError("content fallback called")):
+            result = map_cards(facts, candidates, load("search_card_taxonomy.v1.json"),
+                               load("card_recognition_contracts.v1.json"), load("learned_card_geometry_profiles.v1.json"))
+        mapped = result["cards"][0]
+        self.assertEqual(mapped["selectedCardType"]["cardType"], "酒店卡片")
+        self.assertEqual(mapped["selectedCardType"]["classificationMode"], "title_semantics_with_structure_v1")
+        self.assertFalse(mapped["recognitionFeatures"]["package_summary"])
+        self.assertTrue(mapped["contractValidation"]["minimumSatisfied"])
+
+    def test_title_family_does_not_override_incompatible_attachment_topology(self):
+        references = ROOT / "phase2-card-annotation" / "references"
+        load = lambda name: json.loads((references / name).read_text(encoding="utf-8"))
+        card = {"id": "C1", "coord": [0, 100, 400, 220], "reviewedTopology": {"regions": [
+            {"slot": "merchant_head"}, {"slot": "merchant_info"}, {"slot": "attached_goods"},
+        ], "attachedItems": [{"itemIndex": 1, "coord": [120, 210, 100, 70]}]}}
+        facts = {"contractVersion": "phase2.cv-facts.v1", "viewport": {"width": 400, "height": 600}, "candidates": {"text": [
+            {"id": "T1", "text": "好利来生日蛋糕", "coord": [120, 110, 200, 30], "route": "accepted",
+             "visualReview": {"cardId": "C1", "role": "title", "topologySlot": "title"}},
+        ], "photos": [
+            {"id": "P-head", "coord": [10, 110, 90, 90], "route": "accepted",
+             "visualReview": {"cardId": "C1", "topologySlot": "merchant_head"}},
+            {"id": "P-item", "coord": [125, 215, 90, 55], "route": "accepted",
+             "visualReview": {"cardId": "C1", "topologySlot": "attached_goods"}},
+        ]}}
+        self.assertEqual(title_semantic_family(card, facts)["family"], "商品卡片")
+        self.assertTrue(topology_errors("商品卡片", card["reviewedTopology"]))
+        mapped = map_cards(facts, {"structureBlocks": [], "resultCards": [card]},
+                           load("search_card_taxonomy.v1.json"), load("card_recognition_contracts.v1.json"),
+                           load("learned_card_geometry_profiles.v1.json"))["cards"][0]
+        self.assertEqual(mapped["selectedCardType"]["cardType"], "商家卡片_图文下挂")
+
     def test_text_downhang_requires_attached_items_and_plain_is_known_variant(self):
         topology = {
             "regions": [
@@ -117,6 +235,17 @@ class CvLlmTopologyTests(unittest.TestCase):
         self.assertEqual([target["cardId"] for target in plan["targets"]], ["C2"])
         self.assertIn("cards[2].regions[3].itemGroups[2]", plan["targets"][0]["errors"][0])
 
+    def test_semantic_ownership_retry_targets_card_and_page_module(self):
+        ownership = {"valid": False, "errors": [
+            "page_module_owned_by_result_card:tab:C1",
+            "reviewed_item_owner_mismatch:C2:C2-T3:1",
+        ]}
+        plan = build_retry_plan({"errors": []}, {"valid": True, "errors": []}, 1, 3,
+                                {"cards": [{"cardId": "C1"}, {"cardId": "C2"}]}, ownership)
+        self.assertEqual([target["cardId"] for target in plan["targets"]], ["C1", "C2"])
+        self.assertEqual(plan["pageModuleTargets"][0]["moduleType"], "tab")
+        self.assertTrue(plan["retryRequired"])
+
     def test_cropped_graphic_item_does_not_require_offscreen_text_or_price(self):
         groups = append_item_groups("下挂商品区", [{
             "id": "P1", "元素类型": "图片", "坐标": [0, 0, 80, 60],
@@ -139,6 +268,7 @@ class CvLlmTopologyTests(unittest.TestCase):
         }], "modules": []}
         result = apply(facts, review)
         self.assertEqual(result["candidates"]["text"][0]["visualReview"]["topologySlot"], "text_attachment")
+        self.assertTrue(result["routing"]["visualReview"]["moduleInventoryComplete"])
 
     def test_reviewed_photo_replaces_overlapping_cv_photo(self):
         """A reviewed head image must not be published twice with its CV candidate."""
@@ -471,6 +601,22 @@ class CvLlmTopologyTests(unittest.TestCase):
         groups = append_item_groups("下挂商品区", elements, "商家卡片_图文下挂")
         self.assertIn("T2", groups[1]["elementIds"])
 
+    def test_text_attachment_declared_item_spans_multiple_vertical_rows(self):
+        elements = [
+            {"id": "T1", "元素类型": "文本", "坐标": [100, 200, 140, 30], "render": {"visibleStatus": "confirmed"}, "textFacts": {"semanticRole": "attachment"}, "_reviewItemIndex": 1},
+            {"id": "T2", "元素类型": "文本", "坐标": [100, 300, 100, 30], "render": {"visibleStatus": "confirmed"}, "textFacts": {"semanticRole": "price"}, "_reviewItemIndex": 1},
+            {"id": "T3", "元素类型": "文本", "坐标": [100, 400, 140, 30], "render": {"visibleStatus": "confirmed"}, "textFacts": {"semanticRole": "attachment"}, "_reviewItemIndex": 1},
+        ]
+        groups = append_item_groups("文字下挂区", elements, "商家卡片_文字下挂")
+        self.assertEqual(len(groups), 1)
+        self.assertEqual(groups[0]["textElementIds"], ["T1", "T3"])
+        self.assertEqual(groups[0]["priceElementIds"], ["T2"])
+        self.assertEqual(groups[0]["visibleStatus"], "confirmed")
+
+        for element in elements:
+            element.pop("_reviewItemIndex")
+        self.assertEqual(len(append_item_groups("文字下挂区", elements, "商家卡片_文字下挂")), 3)
+
     def test_paddle_mode_cannot_be_reenabled_through_the_python_api(self):
         with tempfile.TemporaryDirectory() as temp:
             with self.assertRaisesRegex(ValueError, "cv_llm only"):
@@ -481,4 +627,20 @@ class CvLlmTopologyTests(unittest.TestCase):
             path = Path(temp) / "review.json"
             path.write_text(json.dumps({"completeCurrentPixelReview": True, "cards": [{"cardId": "C1", "cardTypeCandidate": "商家卡片_图文下挂", "topology": {"regions": []}}]}), encoding="utf-8")
             with self.assertRaisesRegex(ValueError, "topology regions"):
+                validate_cv_llm_visual_review(path)
+
+    def test_declared_module_inventory_rejects_invalid_box(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "review.json"
+            path.write_text(json.dumps({
+                "completeCurrentPixelReview": True,
+                "modules": [{"moduleType": "tab", "coord": [0, 80, 400, 0]}],
+                "cards": [{"cardId": "C1", "cardTypeCandidate": "商品卡片", "topology": {
+                    "regions": [{"slot": "head_media", "coord": [0, 100, 100, 100]},
+                                {"slot": "title", "coord": [110, 100, 250, 40]},
+                                {"slot": "price", "coord": [110, 160, 100, 40]}],
+                    "attachedItems": [],
+                }}],
+            }), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "module requires moduleType and positive coord"):
                 validate_cv_llm_visual_review(path)

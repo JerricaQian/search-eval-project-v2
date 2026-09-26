@@ -17,10 +17,14 @@ from skill_frontmatter import load_weight
 
 COMPONENT_ROW_REQUIREMENTS: dict[str, set[str]] = {
     "eval-1-supply-completeness": {"componentId", "visibleBounds", "applicableFields", "checkResults", "rating"},
-    "eval-2-visual-order-alignment": {"comparisonGroupKey", "members", "layoutSignatures", "readingOrderChecks", "evidenceSource", "rating"},
+    "eval-2-visual-order-alignment": {
+        "componentId", "cardVariant", "visibleInformationLineCount", "excellentRange",
+        "passLineCounts", "failRule", "evidenceSource", "rating",
+    },
     "eval-3-color-logic": {
-        "componentId", "scannedElementIds", "excludedElementIds", "sourceColorValues",
-        "colorFamilies", "colorFamilyCount", "evidenceSource", "rating",
+        "componentId", "scannedElementIds", "excludedElementIds", "reviewItems",
+        "sourceColorValues", "neutralColorValues", "colorFamilies", "colorFamilyCount",
+        "evidenceSource", "rating",
     },
     "eval-4-element-complexity": {
         "componentId", "expectedRegions", "scannedRegions", "unscannedRegions", "scannedElementIds",
@@ -37,7 +41,8 @@ COMPONENT_ROW_REQUIREMENTS: dict[str, set[str]] = {
     },
     "eval-8-info-redundancy": {
         "componentId", "scannedRegions", "examinedElements", "candidatePairs",
-        "selfRepeatCandidates", "duplicates", "duplicateCount", "scanCoverage",
+        "pairJudgements", "selfRepeatCandidates", "selfRepeatJudgements",
+        "duplicates", "duplicateCount", "scanCoverage",
         "evidenceSource", "rating",
     },
 }
@@ -72,6 +77,11 @@ FORBIDDEN_COPY_TERMS_PATH = Path(__file__).with_name("forbidden_copy_terms.json"
 FORBIDDEN_ID_PATTERN_EXEMPTIONS = {"P0", "P1", "P2"}
 PROJECT_DIR = Path(__file__).resolve().parents[1]
 PHASE3_DIR = PROJECT_DIR / "phase3-evaluation"
+COLOR_ROLE_TO_FAMILY = {
+    "red": "红", "orange": "橙", "yellow": "黄", "green": "绿",
+    "cyan": "青", "blue": "蓝", "purple": "紫",
+}
+COLOR_FAMILY_ORDER = ["红", "橙", "黄", "绿", "青", "蓝", "紫"]
 _PHASE2_TAXONOMY = json.loads(
     (PROJECT_DIR / "phase2-card-annotation" / "references" / "search_card_taxonomy.v1.json").read_text(encoding="utf-8")
 )
@@ -194,10 +204,14 @@ def require_readable_component_location(errors: list[str], prefix: str, issue: d
 
 PAGE_EVIDENCE_REQUIREMENTS: dict[str, set[str]] = {
     "eval-1-supply-module-completeness": {"modules", "expectedModules", "layoutChecks", "rating"},
-    "eval-2-visual-order-alignment": {"pageRegions", "sameTypeComparisons", "rating"},
+    "eval-2-visual-order-alignment": {
+        "sourceCardIds", "sourceModuleIds", "excludedModules", "styleInventory", "distinctStyleCodes",
+        "distinctCardStyleCount", "countRule", "evidenceSource", "rating",
+    },
     "eval-3-page-color-logic": {
-        "colorLogicContractVersion", "componentColorArtifact", "componentColorSummaries",
-        "colorFamilies", "colorFamilyCount", "evidenceSource", "rating",
+        "colorLogicContractVersion", "componentColorSummaries", "reviewItems",
+        "colorFamilies", "gradientColorValues", "gradientContributionCount",
+        "colorFamilyCount", "evidenceSource", "rating",
     },
     "eval-4-static-component-complexity": {"firstScreenBounds", "functionalModules", "moduleCount", "rating"},
     "eval-5-browsing-flow-smoothness": {"listPositions", "visibleListPositionCount", "coverageStatus", "heterogeneousCount", "rating"},
@@ -254,34 +268,78 @@ def require_evidence_source(
         errors.append(f"{prefix}:row_level_measurement_forbidden")
 
 
-def require_component_color_pixel_evidence(
+def require_component_color_json_evidence(
     errors: list[str],
     prefix: str,
     row: dict[str, Any],
     active_by_id: dict[str, dict[str, Any]],
 ) -> None:
-    """Validate a component-colour row produced from bound screenshot pixels."""
-    require_evidence_source(errors, prefix, row, "original_screenshot_pixels")
+    """Validate a component-colour row derived only from Phase2 JSON colour roles."""
+    require_evidence_source(errors, prefix, row, "phase2_json_color_inventory")
     scanned = row.get("scannedElementIds")
     excluded = row.get("excludedElementIds")
+    review_items = row.get("reviewItems")
     source_values = row.get("sourceColorValues")
+    neutral_values = row.get("neutralColorValues")
     families = row.get("colorFamilies")
     count = row.get("colorFamilyCount")
     if not isinstance(scanned, list) or any(item not in active_by_id for item in scanned):
         errors.append(f"{prefix}:scannedElementIds_invalid")
     if not isinstance(excluded, list) or any(item not in active_by_id for item in excluded):
         errors.append(f"{prefix}:excludedElementIds_invalid")
+    if not isinstance(review_items, list) or any(
+        not isinstance(item, dict)
+        or item.get("elementId") not in active_by_id
+        or not isinstance(item.get("reason"), str)
+        or not item["reason"].strip()
+        for item in review_items
+    ):
+        errors.append(f"{prefix}:reviewItems_invalid")
+    elif review_items:
+        errors.append(f"{prefix}:unresolved_color_roles_block_formal_rating")
     if not isinstance(source_values, list) or any(
         not isinstance(item, dict)
         or not {"elementId", "field", "value", "colorFamily"}.issubset(item)
         or item.get("elementId") not in active_by_id
+        or item.get("field") not in {"visual.colorRole", "textFacts.textColorRole"}
+        or item.get("value") not in COLOR_ROLE_TO_FAMILY
+        or item.get("colorFamily") != COLOR_ROLE_TO_FAMILY.get(item.get("value"))
         for item in source_values
     ):
         errors.append(f"{prefix}:sourceColorValues_invalid")
-    if not isinstance(families, list) or any(not isinstance(item, str) or not item for item in families):
+    if not isinstance(neutral_values, list) or any(
+        not isinstance(item, dict)
+        or not {"elementId", "field", "value"}.issubset(item)
+        or item.get("elementId") not in active_by_id
+        or item.get("field") not in {"visual.colorRole", "textFacts.textColorRole"}
+        or item.get("value") != "neutral"
+        for item in neutral_values
+    ):
+        errors.append(f"{prefix}:neutralColorValues_invalid")
+    allowed_families = set(COLOR_FAMILY_ORDER)
+    if not isinstance(families, list) or any(item not in allowed_families for item in families):
         errors.append(f"{prefix}:colorFamilies_invalid")
     elif len(families) != len(set(families)):
         errors.append(f"{prefix}:colorFamilies_must_be_unique")
+    if isinstance(source_values, list) and isinstance(families, list):
+        source_families = {
+            item.get("colorFamily") for item in source_values
+            if isinstance(item, dict) and item.get("colorFamily") in allowed_families
+        }
+        expected_families = [family for family in COLOR_FAMILY_ORDER if family in source_families]
+        if families != expected_families:
+            errors.append(f"{prefix}:colorFamilies_must_equal_json_role_union")
+    if isinstance(scanned, list) and isinstance(source_values, list) and isinstance(neutral_values, list):
+        evidenced_ids = {
+            item.get("elementId") for item in source_values + neutral_values
+            if isinstance(item, dict) and isinstance(item.get("elementId"), str)
+        }
+        if set(scanned) != evidenced_ids or len(scanned) != len(set(scanned)):
+            errors.append(f"{prefix}:scannedElementIds_must_match_color_evidence")
+    if isinstance(scanned, list) and isinstance(excluded, list) and isinstance(review_items, list):
+        review_ids = {item.get("elementId") for item in review_items if isinstance(item, dict)}
+        if set(scanned) & set(excluded) or set(scanned) & review_ids or set(excluded) & review_ids:
+            errors.append(f"{prefix}:color_element_partitions_must_be_disjoint")
     if not isinstance(count, int) or count < 0:
         errors.append(f"{prefix}:colorFamilyCount_invalid")
         return
@@ -293,13 +351,15 @@ def require_component_color_pixel_evidence(
 
 
 def require_page_color_component_aggregation(errors: list[str], prefix: str, row: dict[str, Any]) -> None:
-    """Validate the V4 page-colour union of component pixel-colour families."""
-    if row.get("colorLogicContractVersion") != "4.0":
-        errors.append(f"{prefix}:colorLogicContractVersion_must_be_4.0")
-    require_evidence_source(errors, prefix, row, "component_pixel_color_aggregation")
-    artifact = row.get("componentColorArtifact")
-    if not isinstance(artifact, str) or not artifact or not Path(artifact).is_file():
-        errors.append(f"{prefix}:componentColorArtifact_missing")
+    """Legacy V5.0 validator retained for historical audit replay only."""
+    if row.get("colorLogicContractVersion") != "5.0":
+        errors.append(f"{prefix}:colorLogicContractVersion_must_be_5.0")
+    require_evidence_source(errors, prefix, row, "phase2_json_component_color_aggregation")
+    review_items = row.get("reviewItems")
+    if not isinstance(review_items, list):
+        errors.append(f"{prefix}:reviewItems_must_be_array")
+    elif review_items:
+        errors.append(f"{prefix}:unresolved_color_roles_block_formal_rating")
     summaries = row.get("componentColorSummaries")
     if not isinstance(summaries, list):
         errors.append(f"{prefix}:componentColorSummaries_must_be_array")
@@ -315,6 +375,9 @@ def require_page_color_component_aggregation(errors: list[str], prefix: str, row
         component_id = summary.get("componentId")
         families = summary.get("colorFamilies")
         count = summary.get("colorFamilyCount")
+        summary_reviews = summary.get("reviewItems")
+        scanned_ids = summary.get("scannedElementIds")
+        excluded_ids = summary.get("excludedElementIds")
         if not isinstance(component_id, str) or not component_id or component_id in component_ids:
             errors.append(f"{item_prefix}_componentId_invalid")
         else:
@@ -326,6 +389,14 @@ def require_page_color_component_aggregation(errors: list[str], prefix: str, row
             errors.append(f"{item_prefix}_colorFamilies_must_be_unique")
         if not isinstance(count, int) or count != len(families):
             errors.append(f"{item_prefix}_colorFamilyCount_must_match_colorFamilies")
+        if not isinstance(scanned_ids, list) or len(scanned_ids) != len(set(scanned_ids)):
+            errors.append(f"{item_prefix}_scannedElementIds_invalid")
+        if not isinstance(excluded_ids, list) or len(excluded_ids) != len(set(excluded_ids)):
+            errors.append(f"{item_prefix}_excludedElementIds_invalid")
+        if not isinstance(summary_reviews, list):
+            errors.append(f"{item_prefix}_reviewItems_must_be_array")
+        elif summary_reviews:
+            errors.append(f"{item_prefix}_unresolved_color_roles_block_formal_rating")
         expected_families.update(families)
     families = row.get("colorFamilies")
     count = row.get("colorFamilyCount")
@@ -334,12 +405,97 @@ def require_page_color_component_aggregation(errors: list[str], prefix: str, row
         return
     if len(families) != len(set(families)):
         errors.append(f"{prefix}:colorFamilies_must_be_unique")
-    if set(families) != expected_families:
+    expected_ordered_families = [family for family in COLOR_FAMILY_ORDER if family in expected_families]
+    if families != expected_ordered_families:
         errors.append(f"{prefix}:colorFamilies_must_equal_component_union")
     if not isinstance(count, int) or count != len(families):
         errors.append(f"{prefix}:colorFamilyCount_must_match_colorFamilies")
         return
     expected_rating = "优秀" if count <= 5 else "达标" if count == 6 else "不达标"
+    if row.get("rating") != expected_rating:
+        errors.append(f"{prefix}:rating_must_be_{expected_rating}")
+
+
+def require_page_color_component_aggregation_v5_1(errors: list[str], prefix: str, row: dict[str, Any]) -> None:
+    """Validate the current Skill's JSON-only union and two-tier threshold."""
+    if row.get("colorLogicContractVersion") != "5.1":
+        errors.append(f"{prefix}:colorLogicContractVersion_must_be_5.1")
+    require_evidence_source(errors, prefix, row, "phase2_json_component_color_aggregation")
+    reviews = row.get("reviewItems")
+    if not isinstance(reviews, list):
+        errors.append(f"{prefix}:reviewItems_must_be_array")
+    elif reviews:
+        errors.append(f"{prefix}:unresolved_color_roles_block_formal_rating")
+    summaries = row.get("componentColorSummaries")
+    if not isinstance(summaries, list):
+        errors.append(f"{prefix}:componentColorSummaries_must_be_array")
+        return
+    allowed = set(COLOR_FAMILY_ORDER)
+    component_ids: set[str] = set()
+    expected_families: set[str] = set()
+    for index, summary in enumerate(summaries, start=1):
+        item_prefix = f"{prefix}:componentColorSummaries_{index}"
+        if not isinstance(summary, dict):
+            errors.append(f"{item_prefix}_must_be_object")
+            continue
+        component_id = summary.get("componentId")
+        families = summary.get("colorFamilies")
+        gradients = summary.get("gradientColorValues")
+        if not isinstance(component_id, str) or not component_id or component_id in component_ids:
+            errors.append(f"{item_prefix}_componentId_invalid")
+        else:
+            component_ids.add(component_id)
+        if not isinstance(families, list) or any(family not in allowed for family in families) or len(families) != len(set(families)):
+            errors.append(f"{item_prefix}_colorFamilies_invalid")
+        else:
+            expected_families.update(families)
+        if not isinstance(gradients, list):
+            errors.append(f"{item_prefix}_gradientColorValues_must_be_array")
+        elif any(not isinstance(gradient, dict) or gradient.get("gradientFamilyMode") not in {"same-family", "cross-family"}
+                 or gradient.get("gradientContributionCount") not in {1, 2} for gradient in gradients):
+            errors.append(f"{item_prefix}_gradientColorValues_invalid")
+        count = summary.get("colorFamilyCount")
+        if not isinstance(count, int) or isinstance(count, bool) or count < 0:
+            errors.append(f"{item_prefix}_colorFamilyCount_invalid")
+        elif isinstance(families, list) and isinstance(gradients, list) and count != len(families) + sum(
+            int(gradient.get("gradientContributionCount", 0)) for gradient in gradients
+            if isinstance(gradient, dict) and not gradient.get("colorFamilies")
+        ):
+            errors.append(f"{item_prefix}_colorFamilyCount_must_match_color_evidence")
+        for field in ("scannedElementIds", "excludedElementIds"):
+            ids = summary.get(field)
+            if not isinstance(ids, list) or any(not isinstance(value, str) or not value for value in ids) or len(ids) != len(set(ids)):
+                errors.append(f"{item_prefix}_{field}_invalid")
+        summary_reviews = summary.get("reviewItems")
+        if not isinstance(summary_reviews, list):
+            errors.append(f"{item_prefix}_reviewItems_must_be_array")
+        elif summary_reviews:
+            errors.append(f"{item_prefix}_unresolved_color_roles_block_formal_rating")
+    families = row.get("colorFamilies")
+    if not isinstance(families, list) or any(family not in allowed for family in families) or len(families) != len(set(families)):
+        errors.append(f"{prefix}:colorFamilies_invalid")
+        return
+    if families != [family for family in COLOR_FAMILY_ORDER if family in expected_families]:
+        errors.append(f"{prefix}:colorFamilies_must_equal_component_union")
+    gradients = row.get("gradientColorValues")
+    if not isinstance(gradients, list):
+        errors.append(f"{prefix}:gradientColorValues_must_be_array")
+        return
+    contribution = row.get("gradientContributionCount")
+    if not isinstance(contribution, int) or isinstance(contribution, bool) or contribution < 0:
+        errors.append(f"{prefix}:gradientContributionCount_invalid")
+        return
+    expected_contribution = sum(
+        int(gradient.get("gradientContributionCount", 0)) for gradient in gradients
+        if isinstance(gradient, dict) and not gradient.get("colorFamilies")
+    )
+    if contribution != expected_contribution:
+        errors.append(f"{prefix}:gradientContributionCount_must_match_confirmed_unnamed_gradients")
+    count = row.get("colorFamilyCount")
+    if not isinstance(count, int) or isinstance(count, bool) or count != len(families) + contribution:
+        errors.append(f"{prefix}:colorFamilyCount_must_match_union_plus_gradient_contribution")
+        return
+    expected_rating = "优秀" if count <= 5 else "不达标"
     if row.get("rating") != expected_rating:
         errors.append(f"{prefix}:rating_must_be_{expected_rating}")
 
@@ -467,6 +623,7 @@ def require_complexity_coverage(
             semantic_role = str(source.get("semanticRole") or "")
             color_role = str(source.get("colorRole") or "unknown")
             promotion_prefix = str(source.get("promotionPrefix") or "").strip()
+            atomic_promotion_prefix = bool(PROMOTION_PREFIX_PATTERN.fullmatch(content))
             is_fulfillment = (
                 semantic_role in {"fulfillment", "fulfillment_tag", "delivery_time", "delivery_time_tag"}
                 or compact in FULFILLMENT_COMPLEXITY_EXCLUSIONS
@@ -475,7 +632,7 @@ def require_complexity_coverage(
                 errors.append(f"{prefix}:candidateLedger_{index}_fulfillment_must_be_excluded")
             elif source.get("isPhoto") and decision != "excluded":
                 errors.append(f"{prefix}:candidateLedger_{index}_photo_material_must_be_excluded")
-            elif semantic_role in {"title", "price", "rating"} and not promotion_prefix and decision in {"included_tag", "included_icon"}:
+            elif semantic_role in {"title", "price", "rating"} and not (promotion_prefix or atomic_promotion_prefix) and decision in {"included_tag", "included_icon"}:
                 errors.append(f"{prefix}:candidateLedger_{index}_core_field_must_not_be_counted")
             elif promotion_prefix and decision != "included_tag":
                 errors.append(f"{prefix}:candidateLedger_{index}_promotion_prefix_must_be_included_tag")
@@ -531,7 +688,7 @@ def require_complexity_coverage(
         if set(included_tag_ids) != ledger_tag_ids:
             errors.append(f"{prefix}:includedTagStyles_must_cover_candidateLedger_included_tags")
 
-def require_alignment_visual_evidence(
+def require_legacy_alignment_visual_evidence(
     errors: list[str],
     prefix: str,
     row: dict[str, Any],
@@ -547,6 +704,10 @@ def require_alignment_visual_evidence(
     if not isinstance(members, list) or not members or not all(isinstance(member, str) and member for member in members):
         errors.append(f"{prefix}:members_invalid")
         return
+    if len(members) != 1:
+        errors.append(f"{prefix}:members_must_contain_exactly_one_component")
+    if not isinstance(row.get("comparisonGroupKey"), str) or not row["comparisonGroupKey"].strip():
+        errors.append(f"{prefix}:comparisonGroupKey_required_for_single_component_row")
     if not isinstance(signatures, list) or len(signatures) != len(members):
         errors.append(f"{prefix}:layoutSignatures_must_match_members")
         return
@@ -585,7 +746,8 @@ def require_alignment_visual_evidence(
             continue
         component_id = check.get("componentId")
         status = check.get("status")
-        order = check.get("regionOrder")
+        expected_order = check.get("expectedOrder")
+        observed_order = check.get("observedOrder")
         if component_id not in members or component_id in check_members:
             errors.append(f"{prefix}:readingOrderCheck_{index}_componentId_invalid")
         else:
@@ -594,13 +756,213 @@ def require_alignment_visual_evidence(
             errors.append(f"{prefix}:readingOrderCheck_{index}_status_invalid")
         else:
             statuses.append(status)
-        if not isinstance(order, list) or not order or not all(isinstance(region, str) and region for region in order):
-            errors.append(f"{prefix}:readingOrderCheck_{index}_regionOrder_invalid")
+        for field, order in (("expectedOrder", expected_order), ("observedOrder", observed_order)):
+            if not isinstance(order, list) or not order or not all(isinstance(region, str) and region for region in order):
+                errors.append(f"{prefix}:readingOrderCheck_{index}_{field}_invalid")
+        signals = check.get("attentionSignals")
+        if not isinstance(signals, list) or not signals or not all(
+            isinstance(signal, str) and signal.strip() for signal in signals
+        ):
+            errors.append(f"{prefix}:readingOrderCheck_{index}_attentionSignals_required")
+        for field in ("dominantRegion", "reason"):
+            if not isinstance(check.get(field), str) or not check[field].strip():
+                errors.append(f"{prefix}:readingOrderCheck_{index}_{field}_required")
+        severe_fields = ("auxiliaryDominance", "competingFoci", "ownershipAmbiguity", "pathInversion")
+        if any(not isinstance(check.get(field), bool) for field in (*severe_fields, "localDetour")):
+            errors.append(f"{prefix}:readingOrderCheck_{index}_visual_disorder_flags_required")
+        else:
+            expected_status = (
+                "inversion" if any(check[field] for field in severe_fields)
+                else "local_adjustment" if check["localDetour"]
+                else "consistent"
+            )
+            if status != expected_status:
+                errors.append(f"{prefix}:readingOrderCheck_{index}_status_must_be_{expected_status}")
     if check_members != set(members):
         errors.append(f"{prefix}:readingOrderChecks_must_cover_members")
     if "not_assessable" in statuses:
-        errors.append(f"{prefix}:not_assessable_requires_phase2_review")
+        errors.append(f"{prefix}:not_assessable_requires_visual_review")
     expected_rating = "不达标" if "inversion" in statuses else "达标" if "local_adjustment" in statuses else "优秀"
+    if row.get("rating") != expected_rating:
+        errors.append(f"{prefix}:rating_must_be_{expected_rating}")
+
+
+ALIGNMENT_LINE_COUNT_RULES: dict[str, dict[str, Any]] = {
+    "商品卡片": {"excellentRange": [3, 5], "passLineCounts": [6], "failRule": "≤2 或 ≥7"},
+    "酒店卡片": {"excellentRange": [3, 5], "passLineCounts": [6], "failRule": "≤2 或 ≥7"},
+    "商家卡片_无下挂": {"excellentRange": [3, 5], "passLineCounts": [2, 6], "failRule": "≤1 或 ≥7"},
+    "商家卡片_文字下挂": {"excellentRange": [4, 6], "passLineCounts": [3, 7], "failRule": "≤2 或 ≥8"},
+    "商家卡片_图文下挂": {"excellentRange": [5, 7], "passLineCounts": [4, 8], "failRule": "≤3 或 ≥9"},
+}
+
+
+def require_alignment_line_count_evidence(
+    errors: list[str], prefix: str, row: dict[str, Any]
+) -> None:
+    """Validate card-type information-line-count evidence and rating consistency."""
+    if row.get("evidenceSource") != "original_screenshot_visual_review":
+        errors.append(f"{prefix}:evidenceSource_must_be_original_screenshot_visual_review")
+    if "measurement" in row:
+        errors.append(f"{prefix}:visual_review_must_not_be_measurement")
+    component_id = row.get("componentId")
+    if not isinstance(component_id, str) or not component_id.strip():
+        errors.append(f"{prefix}:componentId_required")
+        return
+    card_variant = row.get("cardVariant")
+    rule = ALIGNMENT_LINE_COUNT_RULES.get(card_variant)
+    if rule is None:
+        errors.append(f"{prefix}:cardVariant_must_be_an_eligible_line_count_card_type")
+        return
+    line_count = row.get("visibleInformationLineCount")
+    if not isinstance(line_count, int) or isinstance(line_count, bool) or line_count < 0:
+        errors.append(f"{prefix}:visibleInformationLineCount_must_be_a_non_negative_integer")
+        return
+    for field in ("excellentRange", "passLineCounts"):
+        if row.get(field) != rule[field]:
+            errors.append(f"{prefix}:{field}_must_match_cardVariant_rule")
+    if row.get("failRule") != rule["failRule"]:
+        errors.append(f"{prefix}:failRule_must_match_cardVariant_rule")
+    lower, upper = rule["excellentRange"]
+    expected_rating = "优秀" if lower <= line_count <= upper else "达标" if line_count in rule["passLineCounts"] else "不达标"
+    if row.get("rating") != expected_rating:
+        errors.append(f"{prefix}:rating_must_be_{expected_rating}")
+
+
+def require_page_card_style_count_evidence(
+    errors: list[str], prefix: str, row: dict[str, Any]
+) -> None:
+    """Validate the JSON-derived result-card style inventory and fixed rating."""
+    if row.get("evidenceSource") != "phase2_json_card_type_inventory":
+        errors.append(f"{prefix}:evidenceSource_must_be_phase2_json_card_type_inventory")
+    source_card_ids = row.get("sourceCardIds")
+    if not isinstance(source_card_ids, list) or not source_card_ids or not all(
+        isinstance(card_id, str) and card_id.strip() for card_id in source_card_ids
+    ):
+        errors.append(f"{prefix}:sourceCardIds_must_be_non_empty_string_array")
+        return
+    if len(source_card_ids) != len(set(source_card_ids)):
+        errors.append(f"{prefix}:sourceCardIds_must_be_unique")
+
+    inventory = row.get("cardTypeInventory")
+    if not isinstance(inventory, list) or not inventory:
+        errors.append(f"{prefix}:cardTypeInventory_must_be_non_empty_array")
+        return
+    inventory_codes: list[str] = []
+    inventory_card_ids: list[str] = []
+    for index, item in enumerate(inventory, start=1):
+        if not isinstance(item, dict):
+            errors.append(f"{prefix}:cardTypeInventory_{index}_must_be_object")
+            continue
+        code = item.get("cardTypeCode")
+        name = item.get("cardTypeName")
+        card_ids = item.get("cardIds")
+        if not isinstance(code, str) or not code.strip() or code in {"unknown", "uncertain"}:
+            errors.append(f"{prefix}:cardTypeInventory_{index}_cardTypeCode_invalid")
+        else:
+            inventory_codes.append(code)
+        if not isinstance(name, str) or not name.strip():
+            errors.append(f"{prefix}:cardTypeInventory_{index}_cardTypeName_required")
+        if not isinstance(card_ids, list) or not card_ids or not all(
+            isinstance(card_id, str) and card_id.strip() for card_id in card_ids
+        ):
+            errors.append(f"{prefix}:cardTypeInventory_{index}_cardIds_invalid")
+        else:
+            inventory_card_ids.extend(card_ids)
+
+    if len(inventory_codes) != len(set(inventory_codes)):
+        errors.append(f"{prefix}:cardTypeInventory_cardTypeCodes_must_be_unique")
+    if len(inventory_card_ids) != len(set(inventory_card_ids)):
+        errors.append(f"{prefix}:cardTypeInventory_cardIds_must_partition_source_cards")
+    if set(inventory_card_ids) != set(source_card_ids) or len(inventory_card_ids) != len(source_card_ids):
+        errors.append(f"{prefix}:cardTypeInventory_must_cover_sourceCardIds")
+
+    distinct_codes = row.get("distinctCardTypeCodes")
+    if distinct_codes != inventory_codes:
+        errors.append(f"{prefix}:distinctCardTypeCodes_must_equal_inventory_order")
+    count = row.get("distinctCardStyleCount")
+    if not isinstance(count, int) or isinstance(count, bool) or count != len(inventory_codes) or count < 1:
+        errors.append(f"{prefix}:distinctCardStyleCount_must_equal_inventory_count")
+        return
+    if row.get("countRule") != "1=优秀; 2=达标; >2=不达标":
+        errors.append(f"{prefix}:countRule_invalid")
+    expected_rating = "优秀" if count == 1 else "达标" if count == 2 else "不达标"
+    if row.get("rating") != expected_rating:
+        errors.append(f"{prefix}:rating_must_be_{expected_rating}")
+
+
+def require_page_supply_style_inventory_v5_2(
+    errors: list[str], prefix: str, row: dict[str, Any]
+) -> None:
+    """Validate current page-style inventory across result cards and modules."""
+    require_evidence_source(errors, prefix, row, "phase2_json_page_supply_style_inventory")
+    source_cards = row.get("sourceCardIds")
+    source_modules = row.get("sourceModuleIds")
+    if not isinstance(source_cards, list) or any(not isinstance(value, str) or not value for value in source_cards) or len(source_cards) != len(set(source_cards)):
+        errors.append(f"{prefix}:sourceCardIds_invalid")
+        return
+    if not isinstance(source_modules, list) or any(not isinstance(value, str) or not value for value in source_modules) or len(source_modules) != len(set(source_modules)):
+        errors.append(f"{prefix}:sourceModuleIds_invalid")
+        return
+    if not source_cards and not source_modules:
+        errors.append(f"{prefix}:no_countable_supply_cards")
+    excluded = row.get("excludedModules")
+    if not isinstance(excluded, list) or any(
+        not isinstance(item, dict) or not isinstance(item.get("moduleId"), str)
+        or not item["moduleId"] or not isinstance(item.get("reason"), str) or not item["reason"].strip()
+        for item in excluded
+    ):
+        errors.append(f"{prefix}:excludedModules_invalid")
+        excluded = []
+    excluded_ids = [item["moduleId"] for item in excluded]
+    if len(excluded_ids) != len(set(excluded_ids)) or set(excluded_ids) & set(source_modules):
+        errors.append(f"{prefix}:excludedModules_must_not_overlap_counted_modules")
+    inventory = row.get("styleInventory")
+    if not isinstance(inventory, list) or not inventory:
+        errors.append(f"{prefix}:styleInventory_must_be_non_empty_array")
+        return
+    codes: list[str] = []
+    inventoried_cards: list[str] = []
+    inventoried_modules: list[str] = []
+    for index, item in enumerate(inventory, start=1):
+        item_prefix = f"{prefix}:styleInventory_{index}"
+        if not isinstance(item, dict):
+            errors.append(f"{item_prefix}_must_be_object")
+            continue
+        code = item.get("styleCode")
+        name = item.get("styleName")
+        cards = item.get("cardIds")
+        modules = item.get("moduleIds")
+        if not isinstance(code, str) or not code or code in {"unknown", "uncertain"}:
+            errors.append(f"{item_prefix}_styleCode_invalid")
+        else:
+            codes.append(code)
+        if not isinstance(name, str) or not name.strip():
+            errors.append(f"{item_prefix}_styleName_required")
+        if not isinstance(cards, list) or any(not isinstance(value, str) or not value for value in cards):
+            errors.append(f"{item_prefix}_cardIds_invalid")
+        else:
+            inventoried_cards.extend(cards)
+        if not isinstance(modules, list) or any(not isinstance(value, str) or not value for value in modules):
+            errors.append(f"{item_prefix}_moduleIds_invalid")
+        else:
+            inventoried_modules.extend(modules)
+        if isinstance(cards, list) and isinstance(modules, list) and not cards and not modules:
+            errors.append(f"{item_prefix}_must_own_card_or_module")
+    if len(codes) != len(set(codes)):
+        errors.append(f"{prefix}:styleCodes_must_be_unique")
+    if set(inventoried_cards) != set(source_cards) or len(inventoried_cards) != len(source_cards):
+        errors.append(f"{prefix}:styleInventory_must_partition_sourceCardIds")
+    if set(inventoried_modules) != set(source_modules) or len(inventoried_modules) != len(source_modules):
+        errors.append(f"{prefix}:styleInventory_must_partition_sourceModuleIds")
+    if row.get("distinctStyleCodes") != codes:
+        errors.append(f"{prefix}:distinctStyleCodes_must_equal_inventory_order")
+    count = row.get("distinctCardStyleCount")
+    if not isinstance(count, int) or isinstance(count, bool) or count != len(codes) or count < 1:
+        errors.append(f"{prefix}:distinctCardStyleCount_must_equal_inventory_count")
+        return
+    if row.get("countRule") != "1=优秀; 2=达标; >2=不达标":
+        errors.append(f"{prefix}:countRule_invalid")
+    expected_rating = "优秀" if count == 1 else "达标" if count == 2 else "不达标"
     if row.get("rating") != expected_rating:
         errors.append(f"{prefix}:rating_must_be_{expected_rating}")
 
@@ -698,14 +1060,66 @@ def require_zero_redundancy_scan(errors: list[str], prefix: str, row: dict[str, 
             errors.append(f"{prefix}:scannedRegions_must_match_scanCoverage")
         if not isinstance(row.get("candidatePairs"), list):
             errors.append(f"{prefix}:candidatePairs_must_be_array")
+        candidate_pairs = row.get("candidatePairs") if isinstance(row.get("candidatePairs"), list) else []
+        pair_judgements = row.get("pairJudgements")
+        if not isinstance(pair_judgements, list) or len(pair_judgements) != len(candidate_pairs):
+            errors.append(f"{prefix}:pairJudgements_must_match_candidatePairs")
+            pair_judgements = []
+        elif any(value not in {"duplicate", "distinct", "not_applicable"} for value in pair_judgements):
+            errors.append(f"{prefix}:pairJudgements_invalid")
         if not isinstance(row.get("selfRepeatCandidates"), list):
             errors.append(f"{prefix}:selfRepeatCandidates_must_be_array")
+        self_candidates = row.get("selfRepeatCandidates") if isinstance(row.get("selfRepeatCandidates"), list) else []
+        self_judgements = row.get("selfRepeatJudgements")
+        if not isinstance(self_judgements, list) or len(self_judgements) != len(self_candidates):
+            errors.append(f"{prefix}:selfRepeatJudgements_must_match_selfRepeatCandidates")
+            self_judgements = []
+        elif any(value not in {"duplicate", "distinct", "not_applicable"} for value in self_judgements):
+            errors.append(f"{prefix}:selfRepeatJudgements_invalid")
+        cross_check_results = coverage.get("crossCheckResults")
+        if not isinstance(cross_check_results, list):
+            errors.append(f"{prefix}:scanCoverage_crossCheckResults_required")
+            cross_check_results = []
+        result_types: set[str] = set()
+        for index, result in enumerate(cross_check_results, start=1):
+            if not isinstance(result, dict):
+                errors.append(f"{prefix}:crossCheckResult_{index}_must_be_object")
+                continue
+            check_type = result.get("checkType")
+            if check_type not in COMPONENT_REDUNDANCY_CROSS_CHECKS or check_type in result_types:
+                errors.append(f"{prefix}:crossCheckResult_{index}_checkType_invalid")
+            else:
+                result_types.add(check_type)
+            if result.get("status") != "completed":
+                errors.append(f"{prefix}:crossCheckResult_{index}_status_must_be_completed")
+            candidate_count = result.get("candidateCount")
+            judgement_count = result.get("judgementCount")
+            if not isinstance(candidate_count, int) or candidate_count < 0:
+                errors.append(f"{prefix}:crossCheckResult_{index}_candidateCount_invalid")
+            if not isinstance(judgement_count, int) or judgement_count != candidate_count:
+                errors.append(f"{prefix}:crossCheckResult_{index}_judgementCount_must_match_candidateCount")
+            if not isinstance(result.get("reason"), str) or not result["reason"].strip():
+                errors.append(f"{prefix}:crossCheckResult_{index}_reason_required")
+        if result_types != COMPONENT_REDUNDANCY_CROSS_CHECKS:
+            errors.append(f"{prefix}:scanCoverage_crossCheckResults_must_cover_component_crossChecks")
+        total_candidates = len(candidate_pairs) + len(self_candidates)
+        reported_candidates = sum(
+            result.get("candidateCount", 0) for result in cross_check_results
+            if isinstance(result, dict) and isinstance(result.get("candidateCount"), int)
+        )
+        if total_candidates == 0 and reported_candidates != 0:
+            errors.append(f"{prefix}:crossCheckResults_zero_candidates_mismatch")
+        if total_candidates > 0 and reported_candidates < total_candidates:
+            errors.append(f"{prefix}:crossCheckResults_must_account_for_all_candidates")
         duplicates = row.get("duplicates")
         if not isinstance(duplicates, list):
             errors.append(f"{prefix}:duplicates_must_be_array")
             duplicates = []
         if count != len(duplicates):
             errors.append(f"{prefix}:duplicateCount_must_match_duplicates")
+        judged_duplicate_count = sum(value == "duplicate" for value in pair_judgements + self_judgements)
+        if count != judged_duplicate_count:
+            errors.append(f"{prefix}:duplicateCount_must_match_duplicate_judgements")
         scanned_set = set(element_ids) if isinstance(element_ids, list) else set()
         for index, duplicate in enumerate(duplicates, start=1):
             if not isinstance(duplicate, dict):
@@ -943,7 +1357,7 @@ def main() -> int:
                 evidence_required = (
                     unit.get("rating") != "优秀"
                     or skill == "eval-3-page-color-logic"
-                    or skill in {"eval-6-info-comparability", "eval-7-info-redundancy"}
+                    or skill in {"eval-2-visual-order-alignment", "eval-6-info-comparability", "eval-7-info-redundancy"}
                 )
                 if evidence_required:
                     if not isinstance(assessment_rows, list) or len(assessment_rows) != 1:
@@ -956,10 +1370,14 @@ def main() -> int:
                     row = assessment_rows[0]
                     if isinstance(row, dict):
                         require_zero_redundancy_scan(errors, f"{skill}/{tab}/row_1", row, "page")
+                if skill == "eval-2-visual-order-alignment" and isinstance(assessment_rows, list) and assessment_rows:
+                    row = assessment_rows[0]
+                    if isinstance(row, dict):
+                        require_page_supply_style_inventory_v5_2(errors, f"{skill}/{tab}/row_1", row)
                 if skill == "eval-3-page-color-logic" and isinstance(assessment_rows, list) and assessment_rows:
                     row = assessment_rows[0]
                     if isinstance(row, dict):
-                        require_page_color_component_aggregation(errors, f"{skill}/{tab}/row_1", row)
+                        require_page_color_component_aggregation_v5_1(errors, f"{skill}/{tab}/row_1", row)
                 if skill == "eval-6-info-comparability" and isinstance(assessment_rows, list) and assessment_rows:
                     row = assessment_rows[0]
                     if isinstance(row, dict):
@@ -1085,7 +1503,9 @@ def main() -> int:
                             errors.append(f"{skill}/{tab}:overview_total_{total}_must_equal_evaluatedUnitCount_{evaluated_unit_count}")
                         if len(assessment_rows) != evaluated_unit_count:
                             errors.append(f"{skill}/{tab}:component_assessmentRows_must_match_evaluatedUnitCount")
-                        if evidence.get("sourceManifestTotal") != expected_total:
+                        if skill == "eval-2-visual-order-alignment" and "sourceManifestTotal" in evidence:
+                            errors.append(f"{skill}/{tab}:visual_order_must_not_use_sourceManifestTotal")
+                        elif skill != "eval-2-visual-order-alignment" and evidence.get("sourceManifestTotal") != expected_total:
                             errors.append(f"{skill}/{tab}:sourceManifestTotal_must_equal_{expected_total}")
                     elif skill in COMPONENT_PROBLEM_ONLY_SKILLS and any(
                         isinstance(row, dict) and row.get("rating") in {"优秀", "🟢"}
@@ -1097,7 +1517,7 @@ def main() -> int:
                         for index, row in enumerate(assessment_rows, start=1):
                             require_row_fields(errors, f"{skill}/{tab}/row_{index}", row, required_component_fields)
                             if skill == "eval-3-color-logic" and isinstance(row, dict):
-                                require_component_color_pixel_evidence(
+                                require_component_color_json_evidence(
                                     errors, f"{skill}/{tab}/row_{index}", row, active_by_id
                                 )
                             if skill == "eval-4-element-complexity" and isinstance(row, dict):
@@ -1130,9 +1550,7 @@ def main() -> int:
                     for index, row in enumerate(assessment_rows, start=1):
                         if not isinstance(row, dict):
                             continue
-                        if not isinstance(row.get("comparisonGroupKey"), str) or not row["comparisonGroupKey"].strip():
-                            errors.append(f"{skill}/{tab}:alignment_assessmentRow_{index}_comparisonGroupKey_invalid")
-                        require_alignment_visual_evidence(
+                        require_alignment_line_count_evidence(
                             errors,
                             f"{skill}/{tab}:alignment_assessmentRow_{index}",
                             row,

@@ -87,6 +87,20 @@ class ExtractPhase3RelationCandidatesTest(unittest.TestCase):
         self.assertEqual(repeats[0]["repeatedFragment"], "3-4斤")
         self.assertEqual(repeats[0]["occurrences"], 2)
 
+    def test_semantic_aliases_create_candidates_across_fields_and_inside_title(self) -> None:
+        module = load_module()
+        manifest = {"query": "酸奶", "cards": [{
+            "cardId": "C4", "regions": [
+                {"name": "标题区", "elements": [item("T", "无蔗糖 0添加蔗糖酸奶", "title")]},
+                {"name": "标签区", "elements": [item("B", "零添加蔗糖", "benefit")]},
+            ],
+        }]}
+        result = module.derive_relation_candidates(manifest)
+        redundancy = result["redundancyCandidates"][0]
+        self.assertTrue(any(pair["lexicalCue"] == "semantic_alias_overlap" for pair in redundancy["candidatePairs"]))
+        self.assertTrue(any(item["lexicalCue"] == "title_internal_semantic_alias_repeat" for item in redundancy["selfRepeatCandidates"]))
+        self.assertEqual(result["contractVersion"], "phase3.relation-candidates.v4")
+
     def test_requested_semantic_cues_receive_deterministic_verdicts(self) -> None:
         module = load_module()
         manifest = {"query": "啤酒", "cards": [{

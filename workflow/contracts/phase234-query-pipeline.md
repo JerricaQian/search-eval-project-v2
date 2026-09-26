@@ -31,7 +31,7 @@ description: 单搜索词 Phase2→Phase3→Phase4 最终流水线；统一卡�
 
 首次尝试读取每张完整截图一次，再读 candidate bundle 与过程候选；必要时最多读取 11 张唯一局部裁图。视觉复核必须写入截图路径、`completeCurrentPixelReview:true`、唯一 `localReviewPaths`，以及全部可见结果卡的 cardId、coord、cardTypeCandidate、topology 和新增/替换字段。不得复制黄金文字、猜写屏外内容或手改审计。
 
-后续尝试读取 retry plan，只对 `targets[]` 指定卡片写 `cardOverrides`，但仍须重新运行完整 candidate→review→publish→validate；不得把 retry plan 当成失败证据后停止。
+后续尝试读取 retry plan，对 `targets[]` 指定卡片写 `cardOverrides`；对 `pageModuleTargets[]` 重新核对页面/卡片归属。显式 `modules[]` 是完整复核后的页面模块库存，未选中的 CV 模块不发布、只记提示；可用 `rejectedModules[]` 补充重要误报的理由，不必逐个驳回候选噪声。两者都必须基于当前像素并重新运行完整 candidate→review→publish→validate；不得把 retry plan 当成失败证据后停止。
 
 卡型使用 `card-type-registry.v1.json` 的全部十种正式类型及各自结构。三种商家卡互斥：
 
@@ -54,22 +54,31 @@ description: 单搜索词 Phase2→Phase3→Phase4 最终流水线；统一卡�
   "<attempt.manifest>" --audit "<attempt.audit>" \
   --recognition-audit "<attempt.recognitionAudit>" --require-current-image-calibration
 
+"${pythonBin}" "${projectDir}/phase2-card-annotation/scripts/semantic_ownership.py" \
+  --manifest "<attempt.manifest>" --visual-review "<attempt.visualReview>" \
+  --result-candidates "<attempt.artifactsDir>/result-candidates.json" \
+  --output "<attempt.artifactsDir>/semantic-ownership-audit.json"
+
 "${pythonBin}" "${projectDir}/phase2-card-annotation/scripts/build_phase2_retry_plan.py" \
   --recognition-gate "<attempt.artifactsDir>/recognition-gate.json" \
   --manifest-audit "<attempt.audit>" --manifest "<attempt.manifest>" \
+  --ownership-audit "<attempt.artifactsDir>/semantic-ownership-audit.json" \
   --attempt "<n>" --max-attempts "${phase2MaxAttempts}" --output "<attempt.retryPlan>"
 ```
 
-候选与当前截图的路径/SHA 不匹配、复核不完整、结构/schema/recognition/manifest 审计失败时，均不得进入 Stage B。只有 `status=confirmed`、`phase3Ready=true`、`wholePageGate=true`、recognition audit 合法且 manifest audit `valid=true` 的尝试可以成为最终 manifest。
+发布按三关判定：①**证据绑定**：候选与当前截图路径/SHA 一致，视觉复核完整；②**事实一致**：结构、卡型、元素、manifest 与语义归属审计没有真实冲突；③**一次性发布**：版本/哈希有效且正式路径未被占用。CV 候选未被完整复核选中、同一模块边界有轻微差异是非阻断审计提示；页面模块与结果卡重复、下挂项与原子元素错归属归 Stage A 定向返工，不得推迟到页面评级。最终 manifest 仍须 `status=confirmed`、`phase3Ready=true`、`wholePageGate=true`、recognition audit 合法、manifest audit `valid=true` 且语义归属审计 `valid=true`。
 
-`retryRequired=true` 时必须按 target cardId 修正并实际生成下一次完整尝试。成功结果的最后一个 plan 必须 `retryRequired=false` 且 `errors=[]`；只有耗尽 `phase2MaxAttempts` 后仍失败才允许 `blockedAt="stageA"`。`stageA.phase2Attempts` 和 `stageA.retryPlans` 必须记录完整连续历史。
+`retryRequired=true` 时必须按卡片及页面模块 target 修正并实际生成下一次完整尝试。成功结果的最后一个 plan 必须 `retryRequired=false` 且 `errors=[]`；只有耗尽 `phase2MaxAttempts` 后仍失败才允许 `blockedAt="stageA"`。`stageA.phase2Attempts` 和 `stageA.retryPlans` 必须记录完整连续历史。
 
 成功尝试通过全部门禁后，使用一次性发布脚本把胜出 manifest/audit 固定到 task 的 `output.manifest/output.audit/output.recognitionAudit`，Stage A 只能返回这些冻结路径：
 
 ```bash
 "${pythonBin}" "${projectDir}/workflow/promote_phase2_attempt.py" \
+  --task "<task.json>" \
   --screenshot "<output.screenshot>" --manifest "<attempt.manifest>" \
   --manifest-audit "<attempt.audit>" --recognition-audit "<attempt.recognitionAudit>" \
+  --ownership-audit "<attempt.artifactsDir>/semantic-ownership-audit.json" \
+  --visual-review "<attempt.visualReview>" \
   --output-manifest "<output.manifest>" --output-audit "<output.audit>" \
   --output-recognition-audit "<output.recognitionAudit>"
 ```
@@ -81,6 +90,13 @@ description: 单搜索词 Phase2→Phase3→Phase4 最终流水线；统一卡�
 当前 Evaluation Agent 本身就是 Phase3 判断执行器：按已读取的 leaf Skill 对当前 manifest 逐项判断并写入结果，不存在也不需要另一个“结果生成脚本”。缺少这类脚本、工作量尚未完成或需要继续撰写结果都不是 `blockedAt=stageB` 的理由；必须继续到全部目标及 Phase4 验证完成。
 
 所有最终 Stage A manifest 发布后，逐一读取 task.requiredReads 中的共同知识、维度 contract 和选中 leaf skills。`task.evalTargets` 是唯一可评测集合；所有 skill 通过 `phase2_bundle_loader.py` 只读正式 manifest。
+
+进入 Stage B 前运行 `python3 scripts/check_eval_contracts.py --task <task.json>`。若返回
+`category=contract_drift`，保留已验收的 Phase2 manifest 和原 Stage B 产物，写
+`ok=false`、`blockedAt="stageB"`、`error="contract_drift:<具体错误>"` 后停止；这是
+Skill/校验器系统契约阻断，不是截图事实错误，不得触发 Phase2 重识别或消耗词级
+三次评测重试。契约修复须先验证语义兼容；仅等价字段迁移可写完整版本化副本，
+统计范围或评级阈值变化时必须使用新版本校验器与结果复验，不改历史原件。
 
 Phase2 A2 已在当前同一 Agent 中读取过每张完整原图。进入 Phase3 后，对所选视觉类 Skill 复用这份当前图上下文，按截图完成一次共享视觉判断轮次，再把同一轮观察分别写入各叶子 Skill 的既有 `assessmentRows`；不得为此新建视觉中间 JSON。长图或局部不确定时可以复看有界区域，但不得把视觉判断倒灌为 Phase2 事实。
 
@@ -99,13 +115,14 @@ Phase2 A2 已在当前同一 Agent 中读取过每张完整原图。进入 Phase
 
 ```bash
 "${pythonBin}" "${projectDir}/scripts/validate_eval_results.py" \
-  "<stagePaths.evalResultFile>" --audit "<stagePaths.evalAuditFile>"
+  --manifest-audit "<final.manifest-audit>" \
+  --results "<stagePaths.evalResultFile>" --audit "<stagePaths.evalAuditFile>"
 ```
 
 可修复的覆盖、字段、计数或引用错误必须在本任务内修正并重跑 validator。只有确实无法取得可信 Phase2 原子事实时才允许 `blockedAt="stageB"`。
 
 ## Stage C：Phase4 问题证据引用与交付
 
-仅在 Stage B audit `valid=true` 后读取 `phase4-issue-evidence/SKILL.md`。只为 Phase3 已确认的问题回写其所属 `details.screenshot` 原图引用，不增加业务判断，不绘制红框，也不创建任何派生图片。`stageC.evidenceImages` 必须是问题实际引用的 `screenshots/` 原图去重集合；无问题时为空数组。完成后用同一 validator 的 `--require-evidence` 模式复验最终结果并更新 `<stagePaths.evalAuditFile>`。
+仅在 Stage B audit `valid=true` 后读取 `phase4-issue-evidence/SKILL.md`。只为 Phase3 已确认的问题回写其所属 `details.screenshot` 原图引用，不增加业务判断，不绘制红框，也不创建任何派生图片。`stageC.evidenceImages` 必须是问题实际引用的 `screenshots/` 原图去重集合；无问题时为空数组。完成后用同一 validator 的 `--manifest-audit`、`--results`、`--audit` 和 `--require-evidence` 参数复验最终结果并更新 `<stagePaths.evalAuditFile>`。
 
 最终按 `evaluation-result.schema.json` 写 `resultPath`：Stage A 提供最终 manifest/audit 与完整重试历史，Stage B 提供评测结果/audit/测量索引，Stage C 提供证据，Stage D 固定 `{}`。不生成单词 HTML，不执行 Phase5，不删除或覆盖任何截图及过程产物。

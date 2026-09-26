@@ -14,6 +14,8 @@ import re
 from pathlib import Path
 from typing import Any
 
+from card_contract_engine import title_semantic_family
+
 
 VERSION = "phase2.search-result-candidates.v1"
 
@@ -127,7 +129,11 @@ def _module_candidates(facts: dict[str, Any], structure: dict[str, Any]) -> list
         by, bottom = block["coord"][1], block["coord"][1] + block["coord"][3]
         local_text = "\n".join(str(item.get("text", "")) for item in texts if _overlap_y(item["coord"], block["coord"]))
         local_photos = [item for item in photos if _overlap_y(item["coord"], block["coord"])]
-        if by >= live_bottom and bottom <= sort_top and local_photos and poi_pattern.search(local_text):
+        title_family = title_semantic_family({"id": "pre-results-candidate", "coord": block["coord"]}, facts)["family"]
+        # A decisive title establishes the page-module family. Only ambiguous
+        # titles fall back to the old within-block POI content combination.
+        poi_identity = title_family == "主点卡片" if title_family else bool(poi_pattern.search(local_text))
+        if by >= live_bottom and bottom <= sort_top and local_photos and poi_identity:
             poi_blocks.append(block)
     main_poi = poi_blocks[0] if poi_blocks else None
     main_poi_bottom = 0
@@ -332,7 +338,30 @@ def build_candidates(facts: dict[str, Any], structure: dict[str, Any]) -> dict[s
     blocks = sorted(structure.get("blocks", []), key=lambda block: block["coord"][1])
     modules = _module_candidates(facts, structure)
     sort_modules = [module for module in modules if module["module"] == "sort_filter" and module["status"] == "confirmed"]
-    results_start_y = max((module["coord"][1] + module["coord"][3] for module in sort_modules), default=0)
+    cv_results_start_y = max((module["coord"][1] + module["coord"][3] for module in sort_modules), default=0)
+    # The current-pixel review can establish the list boundary when CV has no
+    # usable text (and therefore cannot detect the sort row). A confirmed
+    # result-list start is stronger than a sort-row estimate; otherwise the
+    # reviewed sort row supplies the same boundary as its CV counterpart.
+    reviewed_modules = facts.get("routing", {}).get("visualReview", {}).get("modules", [])
+    reviewed_modules = reviewed_modules if isinstance(reviewed_modules, list) else []
+    reviewed_list_starts = [
+        module["coord"][1] for module in reviewed_modules
+        if isinstance(module, dict) and module.get("moduleType") == "result_list"
+        and module.get("visibleStatus") == "confirmed"
+        and isinstance(module.get("coord"), list) and len(module["coord"]) == 4
+    ]
+    reviewed_sort_bottoms = [
+        module["coord"][1] + module["coord"][3] for module in reviewed_modules
+        if isinstance(module, dict) and module.get("moduleType") == "sort_filter"
+        and module.get("visibleStatus") == "confirmed"
+        and isinstance(module.get("coord"), list) and len(module["coord"]) == 4
+    ]
+    results_start_y = max(
+        cv_results_start_y,
+        max(reviewed_list_starts, default=0),
+        max(reviewed_sort_bottoms, default=0),
+    )
     seeds = {index for index, block in enumerate(blocks) if block.get("layoutCandidate") == "left_image_right_text" and block.get("confidence", 0) >= 0.75}
     # Photo detection is a useful second seed source: OCR can occasionally
     # cause a valid image-left/text-right block to be labelled "other".

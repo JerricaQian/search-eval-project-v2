@@ -50,7 +50,7 @@ OPTIONAL_ELEMENT_COMPAT_KEYS = {"内容简述", "excludeReason"}
 OPTIONAL_ELEMENT_VISUAL_KEYS = {"visual", "render", "textFacts"}
 VISUAL_ENTITY_KINDS = {"tag", "icon", "text", "image"}
 VISUAL_STATUSES = {"confirmed", "uncertain"}
-COLOR_ROLES = {"neutral", "red", "orange", "yellow", "green", "blue", "purple", "multicolor", "unknown"}
+COLOR_ROLES = {"neutral", "red", "orange", "yellow", "green", "cyan", "blue", "purple", "multicolor", "unknown"}
 TAG_SCAN_STATUSES = {"found", "not_found", "uncertain"}
 REQUIRED_BASE_VISUAL_FIELDS = {"containerShape", "graphicAssistRole"}
 

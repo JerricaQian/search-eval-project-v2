@@ -4,7 +4,7 @@
 
 `phase2.atomic-manifest.v3` 每次写出前必须使用 `references/search_card_taxonomy.v1.json` 校验枚举与契约版本；文件 SHA-256 仅作为可选溯源记录，不参与发布阻断。所有标签元素统一使用 `kind: "tag"`，槽位名统一以 `_tag` 结尾，例如 `product_attribute_tag` 与 `scenic_rating_tag`。
 
-生产 Phase2 与离线黄金校准共享同一证据策略和元素契约：完整已知卡必须有主标题；每个下挂项分别拥有自己的图片/文字/价格；基础信息和标签按语义原子拆分；禁止单字符文字元素。生产流使用当前图片视觉复核与本地 CV 候选；所有事实必须来自当前截图，黄金只提供结构，契约不满足即阻断。
+生产 Phase2 与离线黄金校准共享元素契约：完整已知卡必须有主标题；每个下挂项分别拥有自己的图片/文字/价格；基础信息和标签按语义原子拆分。生产流只用本地 CV 几何/图片候选及当前图片视觉复核确认文字和归属，不运行本地 OCR；黄金只提供结构。标题明确时仍需本卡拓扑兼容；标题不明确时使用卡内内容与最小证据契约，任一路径的元素/归属门禁不满足均阻断。
 
 详细执行纪律见 `SKILL.md`；卡型边界与最小证据以 `references/card_recognition_contracts.v1.json` 为准。
 
@@ -26,55 +26,36 @@
 
 `<pythonBin>` 由调用方注入；可移植任务使用 `workflowArgs.pythonBin`，不得假定项目 `.venv` 或 `python3` 别名。
 
-```bash
-<pythonBin> phase2-card-annotation/scripts/run_phase2_recognition.py \
-  --query <query> \
-  --screenshot <absolute-screenshot-path> \
-  --output <one-screenshot-elements.json> \
-  --artifacts-dir <one-screenshot-artifact-dir> \
-  --recognition-audit <one-screenshot-elements.recognition-audit.json>
-```
-
-然后读取当前整图一次，写入只包含新增/替换观察的 `current-screenshot-main-session-review.json`，再回灌同一入口：
+先生成不可发布的本地候选，再读取当前整图并写复核记录；生产任务的完整命令和暂存路径以 `workflow/contracts/phase234-query-pipeline.md` 为准：
 
 ```bash
 <pythonBin> phase2-card-annotation/scripts/run_phase2_recognition.py \
-  --query <query> \
-  --screenshot <absolute-screenshot-path> \
-  --output <one-screenshot-elements.json> \
-  --artifacts-dir <one-screenshot-artifact-dir> \
-  --recognition-audit <one-screenshot-elements.recognition-audit.json> \
-  --visual-review <current-screenshot-main-session-review.json>
+  --stage candidate --query <query> --screenshot <absolute-screenshot-path> \
+  --output <candidate-bundle.json> --artifacts-dir <attempt-artifacts-dir>
 ```
 
 ```bash
-<pythonBin> phase2-card-annotation/scripts/validate_element_manifest.py \
-  <one-screenshot-elements.json> \
-  --audit <one-screenshot-elements.audit.json> \
-  --recognition-audit <one-screenshot-elements.recognition-audit.json> \
-  --require-current-image-calibration
+<pythonBin> phase2-card-annotation/scripts/run_phase2_recognition.py \
+  --stage publish --query <query> --screenshot <absolute-screenshot-path> \
+  --candidate-bundle <candidate-bundle.json> --visual-review <visual-review.json> \
+  --output <attempt-manifest.json> --recognition-audit <recognition-audit.json> \
+  --artifacts-dir <attempt-artifacts-dir>
 ```
+
+生产发布按三关验收：**证据绑定**（候选与复核属于当前截图）、**事实一致**（卡型/元素清单、当前图审计与跨层归属）、**一次性发布**（有效审计及版本/哈希绑定）。内部脚本和检查项仍保留，但 CV 候选只是提示：显式 `modules[]` 是完整当前图页面模块库存，未选中的 CV 模块不发布，只记审计提示；页面模块与结果卡重复、下挂项错归属等真实冲突仍阻断。只有三关通过才提升到不可覆盖的正式路径；失败时依据 retry plan 在新暂存尝试中修正。
 
 ## 当前执行链
 
-1. `extract_cv_facts.py`：Tesseract 双版面 OCR、文本行、颜色提示和照片候选。
-2. `build_search_page_structure.py`：页面内容块。
-3. `build_search_result_candidates.py`：页面模块和按卡型区分的结果卡边界。
-4. `map_result_card_semantics.py`：按最小证据契约确认已知卡型、广告卡或异构卡。
-5. `map_search_page_semantics.py`：补充文本角色候选。
-6. `validate_phase2_recognition.py`：字段文法、文本连贯性、双版面一致性和卡型语义的初次整页门控。
-7. 初次门控失败时，`reprocess_bounded_cards.py` 自动执行一次失败卡定向重识别（每卡最多三个裁剪），随后重新生成结构、卡型、文本角色并再次整页门控。
-8. `build_phase2_manifest.py`：把最终同一次识别事实写入该截图自己的主 JSON。
-9. 模型读取当前整图一次，结合本次 Paddle/CV 产物全量复核卡片、区域、下挂项、标签边界、字面和漏标；冲突处才读局部裁图，并将新增/替换观察写为 `--visual-review` 后回灌同一入口。
-10. `build_current_image_calibration_audit.py` 与 `validate_element_manifest.py`：仅在回灌的复核声明完整时从最终 manifest 生成逐元素校准审计，并校验 Phase3 所需事实与整页状态。
-
-第 3 步之后先做结构门禁；第 7 步使用同一个 Paddle 实例，按每张卡“主信息区 / 下挂区”顺序读取（通常每卡 2 裁剪，最多 3），输出行框及可用的词/字符框和绝对坐标，不按失败字段逐个重启 OCR。第 9 步是必须提供的主会话局部复核，不是可选人工备注。最后任一 `itemGroups`、枚举、schema 或审计校验失败都会回写主 JSON 的 `recognition.phase3Ready=false`。
-
-主流程不读取 OCR 置信度。疑似价格只允许在数值锚一致时做有界遮罩复读或选择更连贯的独立布局文本，并保留原始文本和接受理由。PaddleOCR 只在初次门控失败后自动加载一次，顺序处理门控给出的失败卡裁剪，不能处理整页长图；设置 `PHASE2_DISABLE_BOUNDED_PADDLEOCR=1` 可关闭，`PHASE2_OCR_THREADS` 默认是 `2`。
+1. 本地 CV 生成页面、卡片和图片候选，不生成可发布的文字事实。
+2. 当前图复核确认主标题、卡型家族、卡片拓扑、页面模块、下挂项及独立原子；显式 `modules[]` 即页面模块完整库存，`rejectedModules[]` 可补充记录误报原因，不再要求逐项驳回每个未选中的 CV 候选。
+3. `map_result_card_semantics.py` 先采用可信标题语义，必要时再结合卡内内容；商家子型由下挂拓扑决定，异构卡需正面结构证据。
+4. `build_phase2_manifest.py` 组装每张截图自己的事实清单，复核的 `itemIndex` 优先于行距，结果位置按可见顺序编号。
+5. `validate_element_manifest.py` 与 `semantic_ownership.py` 分别验收结构/当前像素审计和跨层归属；失败保留暂存证据并生成定向 retry plan。
+6. `promote_phase2_attempt.py` 核对截图、复核与暂存清单哈希及三份有效审计后一次性发布；历史正式清单不可覆盖。
 
 ## 卡型与页尾规则
 
-卡型决策顺序固定为：满足最小契约的已知卡型 → 有明确广告证据的广告卡 → 稳定独立的异构卡。禁止输出 `unknown`。
+卡型决策顺序固定为：本卡可信主标题语义明确、且卡片拓扑/页面位置兼容的已知卡型 → 结合卡内内容与边界、满足最小契约的已知卡型 → 有明确广告证据的广告卡 → 稳定独立的异构候选。异构正式发布还需 `heterogeneousEvidence` 说明区别于已知卡型的可见结构及已知卡型不成立的原因；不能把证据不足的酒店或商家卡自动归入异构卡。标题含“酒店”等字样但语义指向商品（如酒店用品），或标题含商品词但商家下挂拓扑明确时，不得仅凭词面覆盖结构。无法确定标题语义时进入第二步；正式输出不发布 `unknown`。
 
 结果流最后一张重复卡自然触底时，可在无广告证据的前提下继承上一张已确认已知卡型。只豁免因截断不可见的必需字段；已显示文字的乱码、OCR 分歧和字段文法错误仍阻断整页。
 
@@ -90,7 +71,7 @@
 
 每个最小元素携带坐标、归属、原文、`render`，文字携带 `textFacts`，标签/icon 携带 `visual`。Phase2 记录颜色、颜色角色、字重/字号桶、渲染状态、关系和标签扫描库存；不输出评级。
 
-当前阶段不做通用圆角容器检测。无法由像素确认的 `containerShape` 写 `unknown`。图片在 Phase2 只记录准确坐标与 `render.isPhoto=true`，Phase3 再做确定性像素统计。
+当前阶段不做通用圆角容器检测。无法由像素确认的 `containerShape` 写 `unknown`。图片在 Phase2 只记录准确坐标与 `render.isPhoto=true`；组件与页面色彩在 Phase3 直接排除图片，只复用非图片 UI 元素的已确认颜色角色。
 
 ## 回归与经验沉淀
 

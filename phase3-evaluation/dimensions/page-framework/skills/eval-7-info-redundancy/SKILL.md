@@ -38,8 +38,7 @@ metadata:
 
 评审对象是**不同独立页面区域之间的同对象、同功能入口或同信息重复**；单卡内部语义重复交给组件 `eval-8`（`eval-8-info-redundancy`），不同商卡相似供给不是页面冗余。
 
-1. **先完整读取 Phase3 [知识索引](../../../common/references/knowledge-index.md)、本维度[共享契约](../../contract.md)，再读当前 Skill。**
-2. **优秀不能由 `candidatePairs=[]` 推导；必须覆盖全部 `pageRegions` 并完成逐区域两两 `crossChecks`。**
+1. **优秀不能由 `candidatePairs=[]` 推导；必须覆盖全部 `pageRegions` 并完成逐区域两两 `crossChecks`。**
 3. **每对区域均须核查同对象/同功能或信息、内容重叠、删除后是否无独立决策损失；任何一步缺证据都不能定罪。**
 
 ---
@@ -151,5 +150,3 @@ Phase5 问题卡由 `assessmentRows` 中评级为达标或不达标的问题行�
 - **名字相近 ≠ 无独立决策价值：**不同商家、不同结果集合或新增权益的入口仍有独立价值。
 
 ---
-
-## 参考来源

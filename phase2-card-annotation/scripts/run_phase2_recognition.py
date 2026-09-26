@@ -142,6 +142,26 @@ def validate_cv_llm_visual_review(review_path: Path, cv_facts: dict | None = Non
         raise ValueError("cv_llm visual review must enumerate visible result cards")
     registry = set(display_names())
     seen: set[str] = set()
+    rejected_modules = review.get("rejectedModules", [])
+    if not isinstance(rejected_modules, list):
+        raise ValueError("cv_llm rejectedModules must be a list")
+    review_modules = review.get("modules")
+    reviewed_result_starts: list[float] = []
+    if review_modules is not None:
+        if not isinstance(review_modules, list):
+            raise ValueError("cv_llm modules must be a list")
+        for module in review_modules:
+            coord = module.get("coord") if isinstance(module, dict) else None
+            if (not isinstance(module, dict) or not isinstance(module.get("moduleType"), str)
+                    or not isinstance(coord, list) or len(coord) != 4
+                    or any(not isinstance(value, (int, float)) for value in coord)
+                    or coord[2] <= 0 or coord[3] <= 0):
+                raise ValueError("cv_llm module requires moduleType and positive coord")
+            if module["moduleType"] == "result_list" and module.get("visibleStatus") == "confirmed":
+                reviewed_result_starts.append(coord[1])
+    for rejected in rejected_modules:
+        if not isinstance(rejected, dict) or not isinstance(rejected.get("moduleType"), str) or not isinstance(rejected.get("coord"), list) or len(rejected["coord"]) != 4 or not str(rejected.get("reason", "")).strip():
+            raise ValueError("cv_llm rejectedModule requires moduleType, coord and reason")
     for card in cards:
         if not isinstance(card, dict):
             raise ValueError("cv_llm visual review card must be an object")
@@ -151,6 +171,11 @@ def validate_cv_llm_visual_review(review_path: Path, cv_facts: dict | None = Non
         seen.add(card_id)
         if card_type not in registry:
             raise ValueError(f"{card_id}:cardTypeCandidate is not registered")
+        coord = card.get("coord")
+        if (reviewed_result_starts and isinstance(coord, list) and len(coord) == 4
+                and all(isinstance(value, (int, float)) for value in coord)
+                and coord[1] + coord[3] / 2 < min(reviewed_result_starts)):
+            raise ValueError(f"{card_id}:reviewed_result_card_before_confirmed_result_list")
         topology = _normalise_topology(card)
         if not topology["regions"]:
             raise ValueError(f"{card_id}:visual review must declare card topology regions")
@@ -403,6 +428,14 @@ def run(query: str, screenshot: Path, output: Path, audit: Path | None, artifact
         if visual_review:
             audit_args.extend(["--visual-review", str(visual_review)])
         invoke(audit_args)
+    ownership_audit = artifacts / "semantic-ownership-audit.json"
+    ownership_code = invoke([
+        sys.executable, str(SCRIPT_DIR / "semantic_ownership.py"),
+        "--manifest", str(output), "--visual-review", str(visual_review),
+        "--result-candidates", str(candidates), "--output", str(ownership_audit),
+    ], check=False)
+    if ownership_code != 0:
+        mark_manifest_blocked(output, "semantic_ownership_validation_failed")
     validation_args = [sys.executable, str(ROOT / "phase2-card-annotation" / "scripts" / "validate_element_manifest.py"), str(output), "--audit", str(output.with_suffix(".audit.json"))]
     if audit:
         # A syntactically valid manifest is not enough for publication.  The
@@ -414,7 +447,7 @@ def run(query: str, screenshot: Path, output: Path, audit: Path | None, artifact
         mark_manifest_blocked(output, "element_manifest_or_item_groups_validation_failed")
     elif gate_code != 0:
         mark_manifest_blocked(output, "phase2_gate_failed")
-    return 0 if gate_code == 0 and validation_code == 0 else 1
+    return 0 if gate_code == 0 and ownership_code == 0 and validation_code == 0 else 1
 
 
 def main() -> int:

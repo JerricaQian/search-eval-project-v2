@@ -5,13 +5,13 @@ description: phase3-page_framework-eval 维度 7 个 eval skill 共享的"三档
 
 # 页面框架评测通用契约
 
-本文件是 `skills/` 下 7 个 eval skill（eval-1-supply-module-completeness、eval-2-visual-order-alignment、eval-3-page-color-logic、eval-4-static-component-complexity、eval-5-browsing-flow-smoothness、eval-6-info-comparability、eval-7-info-redundancy）的共享契约来源。Atomic v3 输入使用根目录 `scripts/phase2_bundle_loader.py` 的只读事实视图，由各 Skill 自行派生页面库存和测量事实；`overview.total` 仍固定为 1，不要求 legacy Phase2 门禁字段。
+本文件是 `skills/` 下 7 个 eval skill（eval-1-supply-module-completeness、eval-2-visual-order-alignment、eval-3-page-color-logic、eval-4-static-component-complexity、eval-5-browsing-flow-smoothness、eval-6-info-comparability、eval-7-info-redundancy）的共享契约来源。除 `eval-2` 直接读取当前已验收 Phase2 JSON 外，其他需要格式归一化的 Skill 可使用根目录 `scripts/phase2_bundle_loader.py` 的只读事实视图；`overview.total` 仍固定为 1，不要求 legacy Phase2 门禁字段。
 
 ## 强制框架加载与固定流程
 
-执行本维度任一 Skill 前，必须先完整读取 Phase3 [知识索引](../../common/references/knowledge-index.md)、本共享契约，再读当前 Skill。知识索引中的卡片规范用于辨别标准商卡、主点、酒店/套餐、演出/影院和异构子形态的功能边界；只有 Phase2 已确认的独立边界和功能可进入页面计数或比较组。
+执行本维度任一 Skill 时，Phase3 统一入口必须将 [知识索引](../../common/references/knowledge-index.md)、本共享契约与当前 Skill 各一次冻结到 `MEITUAN_EVAL_TASK.requiredReads`；词级 Agent 按该列表各读一次。叶子 Skill 不得重复加载或覆盖本共享契约。知识索引中的卡片规范用于辨别标准商卡、主点、酒店/套餐、演出/影院和异构子形态的功能边界；只有 Phase2 已确认的独立边界和功能可进入页面计数或比较组。
 
-所有 Skill 共用同一执行协议：1) **读取 Phase2 JSON，确定页面区域、模块和评测目标**；2) 按**先排除→再成立→最后例外**归类，排除、可评与复核必须互斥且覆盖当前页面的区域、模块、列表位或比较组全集；3) 按叶子 Skill 声明选择 JSON、共享原图观察或组件像素结果汇总；4) 校验覆盖，页面级任一未决复核项均停止当前页面正式评级；5) 按叶子 Skill 阈值形成唯一页面结论，并把非优秀页面问题行一对一投影为 issue。目标集合与覆盖分流直接从当前 Phase2 JSON 派生，不复制原清单、不另建第二份全量账本；页面视觉观察直接进入现有评测行，不生成中间视觉 JSON。
+所有 Skill 共用同一执行协议：1) **读取 Phase2 JSON，确定页面区域、模块和评测目标**；2) 按**先排除→再成立→最后例外**归类，排除、可评与复核必须互斥且覆盖当前页面的区域、模块、列表位或比较组全集；3) 按叶子 Skill 声明选择 JSON 或共享原图观察；4) 校验覆盖，页面级任一未决复核项均停止当前页面正式评级；5) 按叶子 Skill 阈值形成唯一页面结论，并把非优秀页面问题行一对一投影为 issue。目标集合与覆盖分流直接从当前 Phase2 JSON 派生，不复制原清单、不另建第二份全量账本；需要页面视觉观察的叶子 Skill 直接把观察写入现有评测行，不生成中间视觉 JSON。
 
 ## 三档解释与页面级证据展示契约
 
@@ -36,8 +36,8 @@ description: phase3-page_framework-eval 维度 7 个 eval skill 共享的"三档
 
 | 模式 | 适用 skill | 原文 |
 |---|---|---|
-| 达标/不达标才需要 | eval-1、eval-2、eval-4、eval-5 | 达标或不达标结论的 `assessmentRows` 必须保留整页核查事实、命中规则及评级解释；优秀不要求保留 `assessmentRows`。 |
-| 每个结论恰一条（含优秀） | eval-3、eval-6、eval-7 | 每个结论必须保留恰一条 `assessmentRows`，记录整页核查事实、命中规则及评级解释；优秀同样不得省略。 |
+| 达标/不达标才需要 | eval-1、eval-4、eval-5 | 达标或不达标结论的 `assessmentRows` 必须保留整页核查事实、命中规则及评级解释；优秀不要求保留 `assessmentRows`。 |
+| 每个结论恰一条（含优秀） | eval-2、eval-3、eval-6、eval-7 | 每个结论必须保留恰一条 `assessmentRows`，记录整页核查事实、命中规则及评级解释；优秀同样不得省略。 |
 
 **以下 2 条 7 个 skill 逐字相同：**
 
@@ -46,7 +46,7 @@ description: phase3-page_framework-eval 维度 7 个 eval skill 共享的"三档
 
 ## Phase2 事实输入契约（整节技能专属，不共享）
 
-普通单图 manifest、黄金 `normalized + evidence` 与 `phase2.atomic-manifest.v3` 必须经 `scripts/phase2_bundle_loader.py` 转为同一只读事实视图。Phase2 只提供页面模块、卡片、元素、归属、坐标和基础可见事实；视觉秩序由原图主判，页面色彩复用组件像素产物，其余候选遍历、比较、计数和评级属于 Phase3。禁止要求 Phase2 输出与某个页面评测 Skill 绑定的预计算结论。
+除 `eval-2` 外，普通单图 manifest、黄金 `normalized + evidence` 与 `phase2.atomic-manifest.v3` 可经 `scripts/phase2_bundle_loader.py` 转为同一只读事实视图。`eval-2` 不读取或运行该脚本，只直接读取当前已验收 Phase2 JSON 的 `cards` 与 `pageFacts.modules`：统计结果列表卡和筛选栏以上主点卡、运营卡、异构横插卡的统一样式库存，并排除“大家还在搜”与提示浮层。禁止要求 Phase2 输出与某个页面评测 Skill 绑定的预计算结论。
 
 7 个 skill 的"Phase2 事实输入契约"节各自点名不同的 Phase2 字段（`pageFacts.modules`、`cards[].structure`、`render`、`textFacts`、`relations` 等）和判定边界，内容完全不同，不构成共享骨架。各 SKILL.md 保留自己的该节全文，不引用本文件。
 

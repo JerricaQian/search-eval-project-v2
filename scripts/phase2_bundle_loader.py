@@ -78,6 +78,7 @@ def _compat_element(element_id: str, source: dict[str, Any], owner_id: str, slot
     visual = {
         "entityKind": entity_kind,
         "visualStatus": "confirmed",
+        "colorRole": visual_source.get("colorRole", "unknown"),
         "backgroundColor": visual_source.get("backgroundColor", ""),
         "textColor": visual_source.get("textColor", ""),
         "borderColor": visual_source.get("borderColor", ""),
@@ -109,6 +110,7 @@ def _compat_element(element_id: str, source: dict[str, Any], owner_id: str, slot
             "rawText": text,
             "textStatus": "naturally_ellipsized" if naturally_cropped else "complete",
             "semanticRole": semantic_role,
+            "textColorRole": visual_source.get("colorRole", "unknown"),
         }
     elif kind == "media":
         output["mediaFacts"] = {

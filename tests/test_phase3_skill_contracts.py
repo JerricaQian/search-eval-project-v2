@@ -23,7 +23,6 @@ class Phase3SkillContractsTest(unittest.TestCase):
             "## 判定标准",
             "## 输出格式模板",
             "## Gotchas",
-            "## 参考来源",
         ]
         for skill in skills:
             content = skill.read_text(encoding="utf-8")
@@ -37,6 +36,18 @@ class Phase3SkillContractsTest(unittest.TestCase):
             self.assertIn("`description`", content, skill)
             self.assertIn("`recommendation`", content, skill)
             self.assertIn("**建议示例：**", content, skill)
+            self.assertNotIn("## 参考来源", content, skill)
+
+    def test_leaf_skills_do_not_duplicate_shared_contract_loading(self) -> None:
+        skills = sorted(PHASE3_DIR.glob("dimensions/*/skills/eval-*/SKILL.md"))
+        for skill in skills:
+            content = skill.read_text(encoding="utf-8")
+            self.assertNotRegex(content, r"先.*共享契约|共享契约.*先", skill)
+
+        for dimension in ("single-element", "card-component", "page-framework"):
+            contract = (PHASE3_DIR / f"dimensions/{dimension}/contract.md").read_text(encoding="utf-8")
+            self.assertIn("MEITUAN_EVAL_TASK.requiredReads", contract)
+            self.assertIn("各读一次", contract)
 
     def test_leaf_review_flows_keep_only_executable_steps(self) -> None:
         skills = sorted(PHASE3_DIR.glob("dimensions/*/skills/eval-*/SKILL.md"))
@@ -53,7 +64,7 @@ class Phase3SkillContractsTest(unittest.TestCase):
 
     def test_review_coverage_contracts_match_runtime_requirements(self) -> None:
         page_contract = (PHASE3_DIR / "dimensions/page-framework/contract.md").read_text(encoding="utf-8")
-        self.assertIn("每个结论恰一条（含优秀） | eval-3、eval-6、eval-7", page_contract)
+        self.assertIn("每个结论恰一条（含优秀） | eval-2、eval-3、eval-6、eval-7", page_contract)
         page_redundancy = (
             PHASE3_DIR / "dimensions/page-framework/skills/eval-7-info-redundancy/SKILL.md"
         ).read_text(encoding="utf-8")
@@ -152,13 +163,14 @@ class Phase3SkillContractsTest(unittest.TestCase):
         self.assertNotIn("eval-5-info-hierarchy", requirements)
         card_color = requirements["eval-3-color-logic"]
         page_color = requirements["eval-3-page-color-logic"]
-        self.assertEqual(card_color["policy"], "required_deterministic_pixel_measurement")
-        self.assertEqual(page_color["policy"], "required_deterministic_pixel_measurement")
-        self.assertEqual(card_color["dependencyKey"], page_color["dependencyKey"])
+        self.assertEqual(card_color["policy"], "phase2_json_only")
+        self.assertEqual(page_color["policy"], "phase2_json_only")
+        self.assertNotIn("script", card_color)
+        self.assertNotIn("script", page_color)
 
         entry = (PHASE3_DIR / "SKILL.md").read_text(encoding="utf-8")
         self.assertIn("不生成中间视觉 JSON", entry)
-        self.assertIn("每张截图只生成一份组件色彩产物", entry)
+        self.assertIn("Phase2 JSON 颜色角色", entry)
 
 
 if __name__ == "__main__":

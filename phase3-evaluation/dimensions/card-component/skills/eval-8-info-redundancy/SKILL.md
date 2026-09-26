@@ -9,7 +9,7 @@ extra: ""
 metadata:
   creator: qianjing16
   updater: qianjing16
-  version: "V2"
+  version: "V3"
   high_sensitive: "false"
   author: qianjing16
   domain: 美团搜索结果页信息冗余评估
@@ -37,9 +37,9 @@ metadata:
 
 ## 评审契约（开工前必读）
 
-评审图筛、快筛、推荐区和整张商卡中的语义重复。先读本维度[共享契约](../../contract.md)；标题保持“信息无冗余”。
+评审图筛、快筛、推荐区和整张商卡中的语义重复；标题保持“信息无冗余”。
 
-1. **先完整读取本维度共享契约和当前 Skill，当前 Phase2 事实优先。**
+1. **当前 Phase2 事实优先。**
 2. **排除项必须显式入账，全部适用区域/组件/比较组必须覆盖，不擅自合并。**
 3. **事实或覆盖不足必须进入复核；宁可不出结论，不得静默产出优秀或问题。**
 
@@ -51,7 +51,9 @@ metadata:
 
 - 原文、语义角色、区域、卡片归属和坐标只读 Phase2 JSON。Phase3 必须在每个完整商卡的全量文字原子上建立区内、跨区和标题内部核对，再完成语义终判；不允许把标题区和基础信息区拆成互不相干的评级行。
 - 允许调用本维度 `scripts/extract_phase3_relation_candidates.py` 的 JSON 语义关系辅助器，或直接导入其纯函数，用于捕获同一数值属性、同件数量词变体、同尺码代码和标题内量化片段重复。辅助器不读取像素、不修改黄金 JSON；通用 `exact/containment` 只保留为候选，不自动判冗余，候选未命中也不能证明优秀。
-- `candidatePairs=[]` 不能证明优秀。优秀前必须保留 `scanCoverage.status=completed`、`textAtomCount`、`scannedElementIds`、`scannedRegions`，以及标题/副标题与基础信息、标签/价格/权益、标题内部的四类 `crossChecks`；这些字段证明已扫全，不替代逐对语义判断。`selfRepeatCandidates` 也必须逐条给出终判，不能只保存候选后仍输出优秀。
+- `candidatePairs=[]` 不能证明优秀。优秀前必须保留 `scanCoverage.status=completed`、`textAtomCount`、`scannedElementIds`、`scannedRegions`，以及四类 `crossCheckResults`。每类结果必须写 `checkType`、`status=completed`、`candidateCount`、`judgementCount` 和非空 `reason`；静态 `crossChecks` 字符串只能说明计划扫什么，不能证明真的扫过。
+- `candidatePairs` 与 `selfRepeatCandidates` 必须分别以等长 `pairJudgements`、`selfRepeatJudgements` 逐项终判，枚举仅限 `duplicate`、`distinct`、`not_applicable`。任何候选未终判都不得评级；`duplicateCount` 必须同时等于 `duplicates` 数量与两类终判中 `duplicate` 的总数。
+- 辅助器必须捕获字面相同、包含关系、同值属性、数量/尺码变体，以及已登记的语义别名（例如“无蔗糖/0添加蔗糖”“Type-C/typec”）。别名命中只生成候选，最终是否可无损删除仍由本 Skill 判断。
 - 先把同一视觉实体的重复 Phase2 标注合并为一个扫描对象，再建立实体之间的候选。不能让 Atomic 清单的两次标注变成一次“冗余问题”。
 - 每个 Tab（包括优秀）先生成逐组件/区域 `assessmentRows`；商卡一行必须覆盖整卡全部可见文字区，并写 `componentId`、`scannedRegions`、`examinedElements`、`candidatePairs`、`selfRepeatCandidates`、`duplicates`、`scanCoverage`、`evidenceSource=phase2_json_full_redundancy_scan`、`duplicateCount` 和评级。自然截断卡不能用未显示区域证明优秀，但两个重复表达都已完整可见时仍须输出问题行。不得附带 `measurement`，也不得回写 Atomic 黄金 JSON 或复用历史结论。
 
@@ -65,7 +67,7 @@ metadata:
 
 1. 按图筛、快筛、推荐区和每张完整商卡直接遍历 JSON 文字原子；商卡必须以整卡为范围形成完整扫描覆盖，即使候选为空也完成四类 `crossChecks`。
 2. 排除同一视觉实体的重复标注与不在本 Skill 范围的业务图筛，记录原因。
-3. 对每个保留候选和标题内部重复候选写出视觉位置、语义角色、服务对象、各自新增信息与无损删除依据；标题↔基础信息同值属性（如“10度”与“麦汁浓度:10°P”）必须明确回答是否同一规格，不能仅因文案不同跳过。
+3. 对每个保留候选和标题内部重复候选写出视觉位置、语义角色、服务对象、各自新增信息与无损删除依据，并形成逐项终判；标题↔基础信息同值属性（如“10度”与“麦汁浓度:10°P”）或语义别名（如“无蔗糖”与“0添加蔗糖”）必须明确回答是否同一事实，不能仅因文案不同跳过。
 4. 汇总 `duplicateCount`；按 N=0/≥1 评级、聚合 Tab 并记录问题项。
 
 ### Step 4：覆盖校验、评级与问题投影
@@ -129,10 +131,17 @@ Phase5 问题卡由 `assessmentRows` 中评级为达标或不达标的问题行�
   "scannedRegions": [],
   "examinedElements": [],
   "candidatePairs": [],
+  "pairJudgements": [],
   "selfRepeatCandidates": [],
+  "selfRepeatJudgements": [],
   "duplicates": [],
-  "scanCoverage": {"status": "", "textAtomCount": 0},
-  "crossChecks": [],
+  "scanCoverage": {
+    "status": "",
+    "textAtomCount": 0,
+    "crossCheckResults": [
+      {"checkType": "", "status": "completed", "candidateCount": 0, "judgementCount": 0, "reason": ""}
+    ]
+  },
   "duplicateCount": 0,
   "evidenceSource": "phase2_json_full_redundancy_scan"
 }
@@ -160,5 +169,3 @@ Phase5 问题卡由 `assessmentRows` 中评级为达标或不达标的问题行�
 - **水果与榴莲 ≠ 必然同义重复**；图筛“水果”和“榴莲”可能是可操作的不同意图层；确认没有新增品类、规格或操作维度后才可判同义重复。
 
 ---
-
-## 参考来源

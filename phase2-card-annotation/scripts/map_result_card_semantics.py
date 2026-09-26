@@ -13,13 +13,16 @@ import re
 from pathlib import Path
 from typing import Any
 
-from card_contract_engine import KNOWN_RESULT_TYPES, price_evidence_items, resolve_card_type
+from card_contract_engine import (
+    KNOWN_RESULT_TYPES, evaluate_contract, extract_features, price_evidence_items,
+    resolve_card_type, title_semantic_family,
+)
 from card_type_registry import validate_phase2_taxonomy
 from classify_search_card_types import classify_card_types
 from phase2_contract import MERCHANT_HEAD_AND_INFO, reviewed_card_type, topology_errors, topology_parts
 
 
-VERSION = "phase2.result-card-semantics.v3"
+VERSION = "phase2.result-card-semantics.v4"
 
 
 def _overlap(box: list[int], container: list[int]) -> bool:
@@ -223,7 +226,8 @@ def _reviewed_merchant_attachment_state(card: dict[str, Any], facts: dict[str, A
     return {"cardType": card_type, "confidence": 1.0, "evidence": evidence}
 
 
-def _reviewed_topology_contract_validation(resolved: dict[str, Any], card_type: str, evidence: list[str]) -> dict[str, Any]:
+def _reviewed_topology_contract_validation(resolved: dict[str, Any], card_type: str, evidence: list[str],
+                                           mode: str = "reviewed_current_pixel_topology") -> dict[str, Any]:
     """Record topology-backed proof without pretending lexical evidence exists."""
     existing = next(
         (item for item in resolved["contractEvaluations"] if item.get("cardType") == card_type),
@@ -234,7 +238,55 @@ def _reviewed_topology_contract_validation(resolved: dict[str, Any], card_type: 
         "minimumSatisfied": True,
         "matchedFeatures": sorted(set(existing.get("matchedFeatures", [])) | set(evidence)),
         "missingEvidenceGroups": [],
-        "validationMode": "reviewed_current_pixel_topology",
+        "forbiddenFeaturesHit": [],
+        "lexicalContractDiagnostics": {
+            "missingEvidenceGroups": existing.get("missingEvidenceGroups", []),
+            "forbiddenFeaturesHit": existing.get("forbiddenFeaturesHit", []),
+        },
+        "validationMode": mode,
+    }
+
+
+def _title_semantic_selection(card: dict[str, Any], facts: dict[str, Any],
+                              title_semantics: dict[str, str],
+                              reviewed_merchant: dict[str, Any] | None) -> dict[str, Any] | None:
+    """Use a decisive title only when the card's structure can own that type."""
+    family = title_semantics["family"]
+    if not family or card.get("reviewedCardType") == "广告卡":
+        return None
+    # Explicit ad identity is an independent card-level exclusion, not a
+    # competing product/merchant content classifier.
+    if any(
+        item.get("route") != "rejected"
+        and isinstance(item.get("coord"), list) and len(item["coord"]) == 4
+        and _owned_by_card(item["coord"], card["coord"])
+        and re.search(r"(?:^|[^不])广告|推广", str(item.get("text", "")))
+        for item in facts.get("candidates", {}).get("text", [])
+    ):
+        return None
+    if family == "商家卡片":
+        # Title can establish merchant identity, not whether its attachments
+        # are graphic, textual, or absent.
+        if not reviewed_merchant:
+            return None
+        card_type = reviewed_merchant["cardType"]
+    else:
+        card_type = family
+    topology = card.get("reviewedTopology")
+    has_reviewed_topology = isinstance(topology, dict) and bool(topology.get("regions"))
+    # A clear title is enough for the family, but it cannot invent card
+    # boundaries/ownership. Without current-pixel topology, use the ordinary
+    # content/contract fallback below.
+    if not has_reviewed_topology or topology_errors(card_type, topology):
+        return None
+    # A primary-point title does not turn a normal results-list card into a
+    # pre-results entity; that page-context fact remains mandatory.
+    if card_type == "主点卡片" and card.get("preResultsPosition") is not True:
+        return None
+    return {
+        "cardType": card_type, "confidence": 1.0,
+        "status": "confirmed", "classificationMode": "title_semantics_with_structure_v1",
+        "evidence": [f"title_semantics:{title_semantics['sourceId']}", f"title_family:{family}"],
     }
 
 
@@ -285,43 +337,64 @@ def map_cards(facts: dict[str, Any], candidates: dict[str, Any], taxonomy: dict[
     result_cards = candidates.get("resultCards", [])
     viewport_height = int(facts.get("viewport", {}).get("height", 0))
     for card_index, card in enumerate(result_cards):
-        type_result = classify_card_types(facts, taxonomy, card["coord"])
-        hint = card.get("classificationHint")
-        if hint:
-            type_result["candidates"].append({"cardType": hint["cardType"], "confidence": hint["confidence"], "evidence": list(card.get("evidence", []))})
-            type_result["candidates"].sort(key=lambda item: item["confidence"], reverse=True)
-        topology = _topology_type_candidate(card, facts, structure_blocks)
-        if topology:
-            type_result["candidates"].append(topology)
-            type_result["candidates"].sort(key=lambda item: item["confidence"], reverse=True)
-        resolved = resolve_card_type(card, facts, structure_blocks, recognition_contracts, type_result["candidates"], geometry_profiles)
-        selected = resolved["selected"]
-        reviewed_product = _reviewed_product_state(card, resolved)
+        title_semantics = title_semantic_family(card, facts)
         reviewed_merchant = _reviewed_merchant_attachment_state(card, facts)
-        if reviewed_product:
-            selected = {
-                "cardType": reviewed_product["cardType"],
-                "confidence": reviewed_product["confidence"],
-                "status": "confirmed",
-                "classificationMode": "reviewed_product_topology_v1",
-                "evidence": reviewed_product["evidence"],
+        title_selected = _title_semantic_selection(card, facts, title_semantics, reviewed_merchant)
+        topology = None
+        if title_selected:
+            # Title family is terminal for classification. Internal text is
+            # still collected for downstream field gates, but the generic
+            # card-type classifier and competing contracts are not consulted.
+            features = extract_features(card, facts, structure_blocks)
+            contract = next(item for item in recognition_contracts["contracts"] if item["cardType"] == title_selected["cardType"])
+            evaluation = evaluate_contract(contract, features)
+            resolved = {
+                "selected": title_selected, "features": features,
+                "contractValidation": evaluation, "contractEvaluations": [evaluation],
+                "nearestKnownCardType": title_selected["cardType"],
             }
+            type_result = {"candidates": [{"cardType": title_selected["cardType"], "confidence": 1.0, "evidence": title_selected["evidence"]}]}
+            selected = title_selected
             resolved["contractValidation"] = _reviewed_topology_contract_validation(
-                resolved, selected["cardType"], selected["evidence"],
+                resolved, selected["cardType"], selected["evidence"], "title_semantics_plus_card_structure",
             )
-            resolved["nearestKnownCardType"] = selected["cardType"]
-        elif reviewed_merchant:
-            selected = {
-                "cardType": reviewed_merchant["cardType"],
-                "confidence": reviewed_merchant["confidence"],
-                "status": "confirmed",
-                "classificationMode": "reviewed_merchant_attachment_state_machine_v3",
-                "evidence": reviewed_merchant["evidence"],
-            }
-            resolved["contractValidation"] = _reviewed_topology_contract_validation(
-                resolved, selected["cardType"], selected["evidence"],
-            )
-            resolved["nearestKnownCardType"] = selected["cardType"]
+        else:
+            type_result = classify_card_types(facts, taxonomy, card["coord"])
+            hint = card.get("classificationHint")
+            if hint:
+                type_result["candidates"].append({"cardType": hint["cardType"], "confidence": hint["confidence"], "evidence": list(card.get("evidence", []))})
+                type_result["candidates"].sort(key=lambda item: item["confidence"], reverse=True)
+            topology = _topology_type_candidate(card, facts, structure_blocks)
+            if topology:
+                type_result["candidates"].append(topology)
+                type_result["candidates"].sort(key=lambda item: item["confidence"], reverse=True)
+            resolved = resolve_card_type(card, facts, structure_blocks, recognition_contracts, type_result["candidates"], geometry_profiles)
+            selected = resolved["selected"]
+            reviewed_product = _reviewed_product_state(card, resolved)
+            if reviewed_product:
+                selected = {
+                    "cardType": reviewed_product["cardType"],
+                    "confidence": reviewed_product["confidence"],
+                    "status": "confirmed",
+                    "classificationMode": "reviewed_product_topology_v1",
+                    "evidence": reviewed_product["evidence"],
+                }
+                resolved["contractValidation"] = _reviewed_topology_contract_validation(
+                    resolved, selected["cardType"], selected["evidence"],
+                )
+                resolved["nearestKnownCardType"] = selected["cardType"]
+            elif reviewed_merchant:
+                selected = {
+                    "cardType": reviewed_merchant["cardType"],
+                    "confidence": reviewed_merchant["confidence"],
+                    "status": "confirmed",
+                    "classificationMode": "reviewed_merchant_attachment_state_machine_v3",
+                    "evidence": reviewed_merchant["evidence"],
+                }
+                resolved["contractValidation"] = _reviewed_topology_contract_validation(
+                    resolved, selected["cardType"], selected["evidence"],
+                )
+                resolved["nearestKnownCardType"] = selected["cardType"]
         partial_policy = {"applied": False}
         bottom = card["coord"][1] + card["coord"][3]
         grid_column = str(card.get("gridColumn", ""))
@@ -350,7 +423,7 @@ def map_cards(facts: dict[str, Any], candidates: dict[str, Any], taxonomy: dict[
                 "stillBlocking": ["malformed_visible_text", "ocr_consensus_failure", "explicit_ad_conflict"],
                 "unobservableReasons": ["viewport_bottom_natural_crop"],
             }
-        if is_bottom_partial and has_visible_media and previous_selected.get("status") == "confirmed" and previous_type in KNOWN_RESULT_TYPES and not resolved["features"].get("explicit_ad_marker"):
+        if not title_selected and is_bottom_partial and has_visible_media and previous_selected.get("status") == "confirmed" and previous_type in KNOWN_RESULT_TYPES and not resolved["features"].get("explicit_ad_marker"):
             inherited_validation = next(
                 (item for item in resolved["contractEvaluations"] if item.get("cardType") == previous_type),
                 resolved["contractValidation"],
@@ -374,6 +447,7 @@ def map_cards(facts: dict[str, Any], candidates: dict[str, Any], taxonomy: dict[
         output.append({
             "cardId": card["id"], "coord": card["coord"], "cardTypeCandidates": type_result["candidates"], "selectedCardType": selected,
             "topologyCandidate": topology,
+            "titleSemanticDecision": title_semantics,
             "recognitionFeatures": resolved["features"], "contractValidation": resolved["contractValidation"],
             "contractEvaluations": resolved["contractEvaluations"], "nearestKnownCardType": resolved["nearestKnownCardType"],
             "partialCardPolicy": partial_policy,

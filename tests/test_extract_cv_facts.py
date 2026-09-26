@@ -482,7 +482,7 @@ class ExtractCvFactsTest(unittest.TestCase):
             result = json.loads(output_path.read_text(encoding="utf-8"))["cards"][0]
 
         self.assertEqual(result["selectedCardType"]["cardType"], "商品卡片")
-        self.assertEqual(result["selectedCardType"]["classificationMode"], "reviewed_product_topology_v1")
+        self.assertEqual(result["selectedCardType"]["classificationMode"], "title_semantics_with_structure_v1")
         self.assertTrue(result["contractValidation"]["minimumSatisfied"])
 
     def test_learned_geometry_is_a_soft_known_type_signal(self) -> None:
@@ -797,9 +797,14 @@ class ExtractCvFactsTest(unittest.TestCase):
                 {"sourceId": "T-rating", "role": "rating", "text": "4.6"},
                 {"sourceId": "T-start", "role": "fulfillment", "text": "起送¥20"},
                 {"sourceId": "T-hours", "role": "fulfillment", "text": "17:00营业"},
+                {"sourceId": "T-conditional-fee", "role": "fulfillment", "text": "满20配送¥1"},
             ]
         }
         self.assertEqual(module.field_schema_hook(visual_forms), [])
+        self.assertNotEqual(module.field_schema_hook({"semanticItems": [
+            {"sourceId": "T-intent", "role": "sales", "text": "1人想买"},
+        ]}), [])
+        self.assertEqual(module.field_schema_hook({"semanticItems": [{"sourceId": "T-hotel-sales", "role": "sales", "text": "100+消费"}]}), [])
         self.assertTrue(module._layout_texts_compatible("fulfillment", "33分钟", "33分钟|钟"))
         self.assertFalse(module._layout_texts_compatible("price", "¥37.5起", "¥97.5起"))
 
@@ -840,6 +845,8 @@ class ExtractCvFactsTest(unittest.TestCase):
         self.assertIn("multiple_product_prices_are_merged_in_one_element", dense_reasons)
         self.assertIn("adjacent_coupon_thresholds_are_merged", dense_reasons)
         self.assertIn("session_time_has_extra_trailing_digit", dense_reasons)
+        self.assertEqual(module.dense_numeric_atomicity_hook({"semanticItems": [{"sourceId": "T-hotel-distance", "role": "location", "text": "距您直线17.7km"}]}), [])
+        self.assertTrue(module.dense_numeric_atomicity_hook({"semanticItems": [{"sourceId": "T-misplaced-distance", "role": "tag", "text": "距您直线17.7km"}]}))
         self.assertEqual(
             module.dense_numeric_atomicity_hook({"semanticItems": [{"sourceId": "T10", "role": "fulfillment", "text": "33分钟"}]}),
             [],

@@ -78,6 +78,7 @@ Phase2 只采集事实：当前截图中的页面模块、结果卡、最小元�
 | 卡型边界与最小证据 | `references/card_recognition_contracts.v1.json` |
 | 酒店单列/双列/民宿与混排细则 | `references/hotel_card_algorithm.v1.md` 与 `references/hotel_card_element_contract.v1.json` |
 | 当前图片全量校准与审计 | `references/current_image_calibration.v1.md`；整图一次、冲突处局部复核、逐元素交叉校验 |
+| 跨层语义归属与模块别名 | `references/semantic_ownership_contract.v2.json`；页面模块、结果卡、下挂项和元素的唯一所有权及发布前冲突门禁；v1 保留历史回放 |
 | 标题、文字下挂、图文下挂与异构下挂结构范例 | `references/golden_structure_exemplars.v1.md`；只学习结构，当前截图独立取证 |
 | 已逐像素复核的黄金标签拆分 | `references/golden_tag_split_reviews.v1.json`；只供离线黄金校准与回归，不向生产注入字段值 |
 | UI/图标检测、OCR 与颜色事实融合 | `references/screen_parser_backend.v1.md`；处理非文本 UI、图标漏检或评估 OmniParser 时读取 |
@@ -112,7 +113,9 @@ Phase2 只采集事实：当前截图中的页面模块、结果卡、最小元�
 
 发布命令从最终 manifest 自动生成校准审计；禁止手改 audit 或 `phase3Ready` 解锁。记录格式和读图上限见 `references/current_image_calibration.v1.md`。
 
-发布和 manifest 校验后必须运行 `scripts/build_phase2_retry_plan.py`。`retryRequired=true` 时按 `targets[].cardId` 写下一次 visual review 的 `cardOverrides`，并重新执行完整 candidate→review→publish→validate；不得保留一份失败证据就结束任务。只有达到任务的 `phase2MaxAttempts` 后仍失败才允许阻断 Stage A。
+Phase2 对外只有三道发布关：**证据绑定**（同一截图的候选与完整当前图复核）、**事实一致**（卡型/元素与跨层归属、清单审计）、**一次性发布**（版本/哈希绑定且不覆盖历史）。内部脚本是这三关的检查项，不增加独立放行层。`scripts/semantic_ownership.py` 在暂存 manifest 上核验真实跨层冲突；完整复核显式给出 `modules[]` 时，该数组决定页面模块库存，未选中的 CV 模块只记审计提示，不阻断也不发布；复核框与发布框代表同一实例即可，不要求逐像素相等。页面模块/结果卡重复、文字下挂错项、卡型与复核冲突仍阻断 Stage A 并生成定向 retry plan。`retryRequired=true` 时按 `targets[].cardId` 和 `pageModuleTargets[]` 返工，重新执行完整 candidate→review→publish→validate；只有耗尽任务尝试预算后仍失败才允许阻断 Stage A。
+
+当前图复核须先划定 `result_list` 的起点（若可见）；筛选栏前的主点、运营、图筛等供给只属于页面模块，不得同时列入 `cards[]`。结果卡必须落在已确认的结果列表内；即使 CV 种子误把前置供给识别成卡，完整复核也应把它归还模块。候选器使用当前图确认的列表/排序边界过滤前置卡种子，复核入口拒绝把列表前的模块再作为结果卡插入；两处均保留原始 CV 提示供审计，不以查询词或历史报告判定归属。
 
 以下是该入口内部的可审计展开流程；只用于诊断或替换某一识别步骤：
 
@@ -160,6 +163,8 @@ bash phase2-card-annotation/scripts/run_cv_facts.sh <screenshot> --output <facts
 `run_phase2_recognition.py` 固定运行 `cv_llm`：关闭 Tesseract 与 Paddle，仅保留本地 CV 的模块、卡片和图片候选；文字、语义原子、卡片拓扑和归属必须来自带 `completeCurrentPixelReview:true` 的 `--visual-review`。缺少该记录、类型注册表不一致、结构/枚举/schema/审计任一门禁失败，都必须阻断。运行目录仍必须保留，以复核卡数、元素数、标题/价格/标签完整性及门禁结果。
 
 卡型标识与展示名称只读取仓库根目录 `card-type-registry.v1.json`。详细的 Phase2 区域契约位于 `references/search_card_taxonomy.v1.json`，Phase3 解释位于 `phase3-evaluation/common/references/card-taxonomy.md`；三者通过同一 id 对齐，禁止在任一说明中手写另一套名称。
+
+以下 Tesseract、Paddle 和 OmniParser 说明仅用于离线黄金校准与历史兼容脚本；当前 `cv_llm` 生产入口不执行这些后端，也不以其安装状态作为发布前置条件。
 
 Tesseract 默认用 `PSM 6` 与 `PSM 11` 两种独立布局识别。主输出不得按置信度切换；核心语义须通过 `ocr_consensus` hook：结构化数字要求数值锚一致，自然文本只允许确定性的包含或高相似关系。价格行可在相同数值锚下选择脚本连贯性更好的独立布局文本；疑似价格可做少量有界遮罩复读，但都必须保留原文、独立布局和接受理由，禁止无锚纠错。行内相邻的汉字碎片先按空间合并，明显分隔的标签、价格和标题保持独立。
 
@@ -285,6 +290,8 @@ Phase3 通过 `scripts/phase2_bundle_loader.py` 直接消费 atomic v3；入口�
 1. 在已知卡型中，仅保留满足 `card_recognition_contracts.v1.json` 全部 `minimumEvidenceGroups` 且未命中 `forbiddenFeatures` 的类型；多个通过时才选择最接近者。
 2. 没有已知卡型通过且存在明确广告标时归 `广告卡`。
 3. 否则，只要是稳定独立渲染单元且有可见内容，归 `异构卡`；禁止输出 `unknown`。
+
+以上第三步只产生异构候选，不自动授予发布资格。正式发布还需当前图复核在 `heterogeneousEvidence.distinctStructure` 记录与已知卡型不同的可见结构，并在 `whyKnownCardTypesFail[]` 说明已知卡型缺少哪些必需证据；若复核选的是已知卡型而构建器回退为异构卡，必须阻断返工，不能靠“异构兜底”绕过卡型契约。
 
 不同卡型必须使用各自边界策略：商品卡以单商品主图、标题和价格重复为界；商家图文下挂必须吸附下一商家头图前的商品图组；商家文字下挂必须吸附下一商家头图前的服务文字块；无下挂商家卡以商家头图、标题和基础信息为完整卡头，不能因缺少下挂误归异构卡；酒店单列按逐卡头图/标题锚切分，双列按独立网格单元逐格切分，头图高度逐卡量取；演出按竖版海报、电影按影院标题和场次块切分；套餐保持主图、概要和价格在同一卡内；主点卡位于普通结果列表前且不占 `listPosition`。完整细则只以卡型契约文件为准。
 

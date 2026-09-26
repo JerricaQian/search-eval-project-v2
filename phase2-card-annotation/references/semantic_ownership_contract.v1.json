@@ -1,0 +1,23 @@
+{
+  "contractVersion": "phase2.semantic-ownership.v1",
+  "description": "候选、当前像素复核与最终清单共用的跨层归属规则；数值几何阈值属于实现和回归，不属于业务契约。",
+  "moduleAliases": {
+    "search_box": "search_bar",
+    "tab_bar": "tab",
+    "filter_sort": "sort_filter",
+    "filter_bar": "sort_filter",
+    "results_list": "result_list",
+    "related_searches": "related_search"
+  },
+  "singletonPageModules": ["search_bar", "tab", "sort_filter", "result_list"],
+  "cardExclusivePageModules": [
+    "search_bar", "tab", "tip_strip", "image_filter", "text_filter",
+    "business_image_filter", "sort_filter", "promotion_filter", "main_poi_card",
+    "business_operation_card", "live_card", "related_search"
+  ],
+  "resultListWrapper": "result_list",
+  "preResultsSupplyModules": ["main_poi_card"],
+  "attachedRegions": ["下挂商品区", "文字下挂区", "下挂区", "服务下挂"],
+  "attachedTopologySlots": ["attached_goods", "text_attachment"],
+  "heterogeneousPositiveReviewFields": ["distinctStructure", "whyKnownCardTypesFail"]
+}

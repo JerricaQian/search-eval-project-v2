@@ -13,6 +13,7 @@ import re
 from pathlib import Path
 from typing import Any
 from card_type_registry import display_names
+from semantic_ownership import canonical_module_type as canonical_page_module_type, same_supply_instance
 from phase2_contract import fulfillment_semantic_kind, fulfillment_tag_values
 
 
@@ -409,16 +410,16 @@ def append_item_groups(region: str, elements: list[dict[str, Any]], card_type: s
     texts = [item for item in elements if item.get("元素类型") != "图片"]
     anchors: list[list[dict[str, Any]]]
     declared_items = {item.get("_reviewItemIndex") for item in elements if isinstance(item.get("_reviewItemIndex"), int) and item.get("_reviewItemIndex") > 0}
-    if card_type == "商家卡片_图文下挂" and declared_items:
+    if card_type in {"商家卡片_图文下挂", "商家卡片_文字下挂"} and declared_items:
         # The current-pixel review explicitly associates every visible image,
-        # title and price with one horizontal item.  Use that ownership before
-        # geometric proximity; geometry is only the fallback for an atom the
-        # reviewer intentionally left ungrouped.
+        # title and price with one item. Use that ownership before geometric
+        # proximity; geometry is only the fallback for an ungrouped atom.
         anchors = [[item for item in elements if item.get("_reviewItemIndex") == item_index] for item_index in sorted(declared_items)]
         ungrouped = [item for item in elements if item.get("_reviewItemIndex") not in declared_items]
+        axis = 0 if card_type == "商家卡片_图文下挂" else 1
         for item in ungrouped:
-            center = item["坐标"][0] + item["坐标"][2] / 2
-            target = min(anchors, key=lambda group: abs(center - (group[0]["坐标"][0] + group[0]["坐标"][2] / 2)))
+            center = item["坐标"][axis] + item["坐标"][axis + 2] / 2
+            target = min(anchors, key=lambda group: abs(center - (group[0]["坐标"][axis] + group[0]["坐标"][axis + 2] / 2)))
             target.append(item)
     elif card_type == "商家卡片_图文下挂" and images:
         anchors = [[item] for item in sorted(images, key=lambda value: value["坐标"][0])]
@@ -622,26 +623,138 @@ def compact_phase3_publication(payload: dict[str, Any]) -> dict[str, Any]:
     return payload
 
 
+def merge_page_modules(cv_modules: list[dict[str, Any]], review_modules: Any,
+                       derived_result_list: dict[str, Any] | None = None,
+                       result_cards: list[dict[str, Any]] | None = None,
+                       rejected_modules: Any = None) -> list[dict[str, Any]]:
+    """Prefer current-pixel modules over CV candidates of the same type.
+
+    An explicit complete current-pixel module inventory owns page modules;
+    unselected CV hints stay in the candidate audit and cannot become page
+    facts. Older reviews without a modules inventory retain CV candidates for
+    compatibility. The result list uses its reviewed box, then the card-derived
+    box, then a CV candidate.
+    """
+    inventory_complete = isinstance(review_modules, list)
+    reviewed = [module for module in review_modules
+                if isinstance(module, dict) and isinstance(module.get("coord"), list)
+                and len(module["coord"]) == 4] if isinstance(review_modules, list) else []
+    reviewed_types = {canonical_page_module_type(module.get("moduleType")) for module in reviewed}
+    filter_bottoms = [module["coord"][1] + module["coord"][3] for module in reviewed
+                      if canonical_page_module_type(module.get("moduleType")) == "sort_filter"]
+    filter_bottom = max(filter_bottoms) if filter_bottoms else None
+    modules = []
+    for module in cv_modules:
+        module_type = canonical_page_module_type(module.get("module"))
+        if inventory_complete:
+            continue
+        if any(
+            isinstance(rejected, dict)
+            and canonical_page_module_type(rejected.get("moduleType")) == module_type
+            and same_supply_instance(rejected.get("coord"), module.get("coord"))
+            for rejected in (rejected_modules if isinstance(rejected_modules, list) else [])
+        ):
+            continue
+        if module_type in reviewed_types or (module_type == "result_list" and derived_result_list):
+            continue
+        # A list card below the sort/filter row cannot also be a pre-list main
+        # POI.  Require a near-identical confirmed result-card footprint, not
+        # just a shared image or nearby text, before suppressing the CV hint.
+        if module_type == "main_poi_card" and any(
+            card.get("structure", {}).get("isResultListItem") is True
+            and card.get("卡片类型") != "主点卡片"
+            and (filter_bottom is None or module.get("coord", [0, 0])[1] >= filter_bottom)
+            and same_supply_instance(module.get("coord", []), card.get("coord", []))
+            for card in (result_cards or [])
+        ):
+            continue
+        if module_type == "result_list" and any(item["moduleType"] == "result_list" for item in modules):
+            continue
+        modules.append({"moduleType": module_type, "coord": module["coord"],
+                        "visibleStatus": module.get("status", "uncertain"),
+                        "contentRole": ";".join(module.get("evidence", [])),
+                        "isListPrefix": False, "isListItem": False})
+    known = {(item["moduleType"], tuple(item["coord"])) for item in modules}
+    for module in reviewed:
+        coord = module.get("coord")
+        module_type = canonical_page_module_type(module.get("moduleType"))
+        if not isinstance(coord, list) or len(coord) != 4 or (module_type, tuple(coord)) in known:
+            continue
+        if module_type == "result_list" and any(item["moduleType"] == "result_list" for item in modules):
+            continue
+        modules.append({"moduleType": module_type, "coord": coord,
+                        "visibleStatus": module.get("visibleStatus", "confirmed"),
+                        "contentRole": module.get("contentRole", ""),
+                        "isListPrefix": False if module_type == "result_list" else bool(module.get("isListPrefix", True)),
+                        "isListItem": bool(module.get("isListItem", False))})
+        known.add((module_type, tuple(coord)))
+    if derived_result_list and not any(item["moduleType"] == "result_list" for item in modules):
+        modules.append(dict(derived_result_list))
+    for index, module in enumerate(modules, 1):
+        module["id"] = f"M{index}"
+    return modules
+
+
+def reconcile_interstitial_list_modules(modules: list[dict[str, Any]], cards: list[dict[str, Any]]) -> None:
+    """Count a confirmed related-search block only when it interrupts known list cards.
+
+    A suggestion block above the first result or after the last visible result
+    may be a preface or footer.  Its list ownership cannot be inferred from
+    type or wording alone, so those positions remain outside the list.
+    """
+    list_cards = sorted((card for card in cards if card.get("structure", {}).get("isResultListItem") is True),
+                        key=lambda card: card["coord"][1])
+    filter_bottoms = [module["coord"][1] + module["coord"][3] for module in modules
+                      if module.get("moduleType") == "sort_filter"]
+    filter_bottom = max(filter_bottoms) if filter_bottoms else None
+    interstitials = []
+    for module in modules:
+        if module.get("moduleType") not in {"related_search", "related_searches"}:
+            continue
+        box = module.get("coord", [])
+        if not isinstance(box, list) or len(box) != 4 or module.get("visibleStatus") != "confirmed":
+            continue
+        before = [card for card in list_cards if card["coord"][1] + card["coord"][3] <= box[1]]
+        after = [card for card in list_cards if card["coord"][1] >= box[1] + box[3]]
+        if before and after and (filter_bottom is None or box[1] >= filter_bottom):
+            interstitials.append(module)
+    for module in sorted(interstitials, key=lambda item: item["coord"][1]):
+        module["isListItem"] = True
+        module["isListPrefix"] = False
+        position = 1 + sum(card["coord"][1] < module["coord"][1] for card in list_cards)
+        position += sum(other["coord"][1] < module["coord"][1] for other in interstitials)
+        module["listPosition"] = position
+    for card in list_cards:
+        card["structure"]["listPosition"] += sum(
+            module["coord"][1] < card["coord"][1] for module in interstitials
+        )
+
+
 def build(query: str, facts: dict[str, Any], candidates: dict[str, Any], card_semantics: dict[str, Any], text_semantics: dict[str, Any], gate: dict[str, Any] | None = None) -> dict[str, Any]:
     semantic_by_card = {item["cardId"]: item for item in card_semantics.get("cards", [])}
     cards = [build_card(card, semantic_by_card.get(card["id"], {}), facts, text_semantics) for card in candidates.get("resultCards", [])]
+    # Candidate IDs are local handles, not result-flow ordinal numbers.  A
+    # reviewed first card may be C0; list positions must follow visible order.
+    for list_position, card in enumerate(sorted(
+        (card for card in cards if card.get("structure", {}).get("isResultListItem") is True),
+        key=lambda item: (item["coord"][1], item["coord"][0]),
+    ), 1):
+        card["structure"]["listPosition"] = list_position
     relations = [relation for card in cards for relation in card.pop("_relations")]
-    modules = [{"id": f"M{i}", "moduleType": module.get("module", "other"), "coord": module["coord"], "visibleStatus": module.get("status", "uncertain"), "contentRole": ";".join(module.get("evidence", [])), "isListPrefix": False, "isListItem": False} for i, module in enumerate(candidates.get("pageModules", []), 1)]
-    # Current-pixel review is authoritative for visible module facts that are
-    # not reliably inferred by CV. De-duplicate by type and bounds so a module
-    # observed by both sources remains a single page fact.
-    review_modules = facts.get("routing", {}).get("visualReview", {}).get("modules", [])
-    known_modules = {(item["moduleType"], tuple(item["coord"])) for item in modules}
-    for module in review_modules if isinstance(review_modules, list) else []:
-        coord = module.get("coord")
-        module_type = module.get("moduleType", "other")
-        if not isinstance(coord, list) or len(coord) != 4 or (module_type, tuple(coord)) in known_modules:
-            continue
-        modules.append({"id": f"M{len(modules)+1}", "moduleType": module_type, "coord": coord,
-            "visibleStatus": module.get("visibleStatus", "confirmed"), "contentRole": module.get("contentRole", ""),
-            "isListPrefix": bool(module.get("isListPrefix", True)), "isListItem": False})
-        known_modules.add((module_type, tuple(coord)))
-    modules.append({"id": f"M{len(modules)+1}", "moduleType": "result_list", "coord": union([card["coord"] for card in cards], [0, 0, facts["viewport"]["width"], facts["viewport"]["height"]]), "visibleStatus": "confirmed" if cards else "uncertain", "contentRole": "结果供给", "isListPrefix": False, "isListItem": False})
+    current_review = facts.get("routing", {}).get("visualReview", {})
+    review_modules = current_review.get("modules") if current_review.get("moduleInventoryComplete") else None
+    derived_result_list = ({"moduleType": "result_list", "coord": union([card["coord"] for card in cards],
+                            [0, 0, facts["viewport"]["width"], facts["viewport"]["height"]]),
+                            "visibleStatus": "confirmed", "contentRole": "结果供给",
+                            "isListPrefix": False, "isListItem": False} if cards else None)
+    modules = merge_page_modules(candidates.get("pageModules", []), review_modules, derived_result_list, cards,
+                                 current_review.get("rejectedModules", []))
+    reconcile_interstitial_list_modules(modules, cards)
+    if not any(module["moduleType"] == "result_list" for module in modules):
+        modules.append({"id": f"M{len(modules)+1}", "moduleType": "result_list",
+                        "coord": [0, 0, facts["viewport"]["width"], facts["viewport"]["height"]],
+                        "visibleStatus": "uncertain", "contentRole": "结果供给",
+                        "isListPrefix": False, "isListItem": False})
     recognition = recognition_state(facts, card_semantics, gate, [card["cardId"] for card in cards])
     payload = {"query": query, "screenshot": facts["screenshot"], "cards": cards,
         "recognition": recognition,

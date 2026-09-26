@@ -33,7 +33,7 @@ BUSINESS_LINES = {
 EXPECTED_REPORT_BUSINESS_TABS = BUSINESS_LINES.copy()
 PLATFORM_SCOPES = {"宏观组件", "特殊广告卡", "运营聚合卡", "相似推荐提示"}
 DEDICATED_BUSINESS_TERMS = (
-    ("healthcare", ("医院", "体检", "医药", "药店", "药房", "诊所", "医疗", "门诊", "口腔", "眼科", "中医", "医美", "整形", "OTC", "处方药", "保健品", "医疗器械", "生理盐水", "快药", "布洛芬", "止痛药", "退烧药")),
+    ("healthcare", ("医院", "体检", "医药", "药店", "药房", "诊所", "医疗", "门诊", "口腔", "眼科", "中医", "医美", "整形", "OTC", "处方药", "保健品", "医疗器械", "生理盐水", "快药", "布洛芬", "止痛药", "退烧药", "三黄片", "医保", "口鼻生疮", "咽喉肿痛", "医用", "敷料", "胶原蛋白", "大药房", "健康旗舰店", "口服液", "止咳")),
     ("hotel_travel", ("酒店", "民宿", "房型", "景点", "度假", "露营", "营地", "漂流", "门票", "宾馆", "公寓", "钟点房", "跟团游", "自由行", "租车")),
     ("maoyan", ("电影", "影院", "演出", "场次", "票价", "剧场")),
     ("xiaoxiang", ("小象超市", "小象")),
@@ -46,6 +46,10 @@ SERVICE_RETAIL_TERMS = (
     "主机游戏", "游戏体验馆", "游戏馆", "桌游", "头疗", "采耳", "养发", "台球", "台球厅", "棋牌",
     "酒吧", "学习规划", "机器人编程", "留学考试", "雅思", "托福", "自习室",
     "洗车", "汽车美容", "美容洗车", "养车", "汽服", "网吧", "网咖", "网费",
+    "驾校", "学车", "陪驾", "早教", "密室", "沉浸互动剧", "保洁", "家政", "家电清洗",
+    "月嫂", "育儿嫂", "保姆", "护老",
+    "拳击", "游泳", "游泳馆", "个性写真", "写真", "胸部养护", "美胸", "养生调理",
+    "电玩", "电玩城", "休闲公园", "脱毛", "轰趴馆",
 )
 # 这些服务业态的展示文案可能同时出现“剧场/演绎”“住宿/酒店式”等
 # 其他业务弱提示词，但其业务身份仍由更具体的服务零售语义决定。
@@ -54,8 +58,8 @@ SERVICE_RETAIL_EXCLUSIVE_TERMS = (
     "洗浴", "汤泉", "汗蒸",
 )
 FLASH_DELIVERY_TERMS = ("闪购", "分钟达", "即时零售", "小时达", "闪电仓", "歪马送酒")
-FLASH_CATEGORY_TERMS = ("零食", "饮料", "日用百货", "卫生巾", "安睡裤", "纸巾", "粮油", "调味", "水果", "西瓜", "果切", "榴莲", "蔬菜", "黄瓜", "肉禽蛋", "水产", "生鲜", "鲜生", "盒马", "超市", "鲜花", "花束", "啤酒", "白酒", "红酒", "矿泉水", "咖啡豆", "便利店", "成人用品", "情趣", "避孕套", "健康用品", "计生用品")
-FLASH_CATEGORY_OVERRIDE_TERMS = ("咖啡豆", "咖啡粉", "咖啡胶囊")
+FLASH_CATEGORY_TERMS = ("零食", "饮料", "日用百货", "卫生巾", "安睡裤", "纸巾", "粮油", "调味", "水果", "西瓜", "果切", "榴莲", "蔬菜", "黄瓜", "肉禽蛋", "水产", "生鲜", "鲜生", "盒马", "超市", "鲜花", "花束", "啤酒", "白酒", "红酒", "矿泉水", "咖啡豆", "便利店", "成人用品", "情趣", "避孕套", "健康用品", "计生用品", "游戏卡", "游戏卡带", "游戏机", "游戏手柄", "耳机", "音箱", "充电器", "手机配件", "酸奶", "发酵乳", "文具", "田格本", "田字本", "作业本", "练字本", "写字本", "软抄", "收纳盒", "收纳包")
+FLASH_CATEGORY_OVERRIDE_TERMS = ("咖啡豆", "咖啡粉", "咖啡胶囊", "酸奶", "发酵乳")
 FOOD_TERMS = (
     "餐厅", "饭店", "火锅", "烧烤", "肉串", "猪脚饭", "烧腊", "蛋糕", "面包甜点", "早餐",
     "柠檬水", "百香果", "咖啡", "coffee", "奶茶", "茶饮", "果茶", "奶酪", "酸奶", "菜品",
@@ -67,8 +71,18 @@ FOOD_TERMS = (
     "盖饭", "牛肉饭", "湘菜", "小炒", "肠粉", "粥", "鸡柳大人", "麦当劳",
     "拌饭", "捞饭", "鲁肉饭", "猪肘饭", "炒饭", "烧饼", "热卤", "鸭头",
     "烤鱼", "烤鸭", "江西菜", "日本料理", "乌冬面", "定食", "寿喜锅", "泡茶", "便宜坊",
+    "炸鱼", "炸虾", "凉皮", "熟食", "卤味", "月饼", "烤串", "三明治", "肉筋",
+    "烧麦", "馄饨", "抄手", "扁食", "春饼", "掉渣饼", "面条", "烩面", "羊肉汤",
+    "羊杂汤", "煎饼", "鱼丸", "小黄鱼", "鸡泥肠", "茶馆", "茶业", "大虾",
+    "轻食", "沙拉", "杂粮饭", "鸡胸", "创意菜", "面馆",
+    "西式简餐", "简餐", "川菜", "粤菜", "鲁菜", "徽菜", "泰国菜", "东南亚菜", "农家菜", "顺德菜",
+    "鸡公煲", "砂锅鱼", "猪蹄煲", "鲜鱼煲", "香辣虾煲", "烤冷面", "鸡蛋灌饼", "好利来",
 )
-LOCAL_RETAIL_TERMS = ("零食", "零食乐园", "品牌零食", "省钱超市")
+LOCAL_RETAIL_TERMS = (
+    "零食", "零食乐园", "品牌零食", "省钱超市", "文具", "田格本", "田字本",
+    "作业本", "练字本", "写字本", "软抄", "鲜花店", "花店", "花卉绿植",
+    "百货", "居家日用", "食品商行", "食品滋补", "运动户外", "眼镜店", "数码家电",
+)
 DELIVERY_TERMS = ("外卖", "配送", "起送", "送达", "外送", "分钟")
 LEVELS = {
     "phase3-single_element-eval": ("单一元素维度", "element", "#6366f1"),
@@ -217,6 +231,7 @@ def classify_card(card: dict[str, Any]) -> dict[str, str]:
             "cardTypeCode": kind, "cardTypeName": card_type,
         }
     semantic, fulfillment = card_semantic_text(card), fulfillment_text(card)
+    visible_business_text = f"{semantic} {fulfillment}"
     has_visible_text = any(
         str((element.get("textFacts") or {}).get("rawText") or element.get("内容简述")
             or element.get("content") or element.get("text") or element.get("visibleText") or "").strip()
@@ -241,7 +256,9 @@ def classify_card(card: dict[str, Any]) -> dict[str, str]:
     else:
         visible_result = {}
     for business, terms in DEDICATED_BUSINESS_TERMS:
-        if not visible_result and has_any(semantic, terms):
+        # 专属业态也可能只出现在已验收的履约商户名中（例如“某某大药房
+        # 旗舰店（快递电商）”）；这仍是当前卡片可见事实，不是搜索词兜底。
+        if not visible_result and has_any(visible_business_text, terms):
             visible_result = classified_business(business, kind, card_type, "semantic")
 
     is_service = has_any(semantic, SERVICE_RETAIL_TERMS)
@@ -252,6 +269,11 @@ def classify_card(card: dict[str, Any]) -> dict[str, str]:
     is_delivery = has_any(fulfillment, DELIVERY_TERMS)
     is_local_retail = has_any(semantic, LOCAL_RETAIL_TERMS)
 
+    # An explicit instant-retail badge on a product card is stronger than a
+    # broad service label in nearby copy (for example "休闲娱乐"). Specific
+    # service and dedicated-business semantics have already won above.
+    if not visible_result and is_flash_label and "商品" in card_type:
+        visible_result = classified_business("flash_delivery", kind, card_type, "product_card+flash_label")
     if not visible_result and is_service:
         visible_result = classified_business("service_retail", kind, card_type, "semantic")
     # “闪购/分钟达”等是当前卡片直接可见的即时零售履约身份；即使 OCR 将
@@ -261,6 +283,12 @@ def classify_card(card: dict[str, Any]) -> dict[str, str]:
             visible_result = classified_business("flash_delivery", kind, card_type, "delivery+flash_category")
         elif is_food:
             visible_result = classified_business("food_delivery", kind, card_type, "delivery+food_category")
+        elif str((card.get("structure") or {}).get("visibleStatus") or "") == "naturally_cropped":
+            visible_result = {
+                "scope": "cropped", "businessCode": "", "businessName": "自然触底未形成可归属卡片",
+                "confidence": "naturally_cropped_delivery_without_visible_category",
+                "cardTypeCode": kind, "cardTypeName": card_type,
+            }
         else:
             visible_result = {
                 "scope": "unknown", "businessCode": "unknown", "businessName": "未知待确认",
@@ -270,6 +298,14 @@ def classify_card(card: dict[str, Any]) -> dict[str, str]:
         visible_result = classified_business("dine_in", kind, card_type, "food_category+non_delivery")
     if not visible_result and is_local_retail:
         visible_result = classified_business("service_retail", kind, card_type, "local_retail_semantic")
+    # 无商家/商品语义、无履约事实的异构卡是地址、评分等平台辅助模块，
+    # 不应被当作业务商卡强行归属，也不应阻断整批业务 Tab 聚合。
+    if not visible_result and card_type == "异构卡" and not fulfillment:
+        return {
+            "scope": "platform", "businessCode": "platform", "businessName": "平台公共组件",
+            "confidence": "heterogeneous_platform_auxiliary",
+            "cardTypeCode": "platform_component", "cardTypeName": card_type,
+        }
     if not visible_result and str((card.get("structure") or {}).get("visibleStatus") or "") == "naturally_cropped":
         return {
             "scope": "cropped", "businessCode": "", "businessName": "自然触底未形成可归属卡片",
@@ -717,6 +753,7 @@ def collect(
                     else:
                         unknown.append({
                             "query": query,
+                            "screenshot": screenshot,
                             "cardId": card_id,
                             "reason": "平台、混合或无法确认业务归属",
                         })
@@ -724,6 +761,7 @@ def collect(
                     if not target_classifications:
                         unknown.append({
                             "query": query,
+                            "screenshot": screenshot,
                             "cardId": card_id,
                             "reason": "未找到可归属的业务卡",
                         })
@@ -1030,6 +1068,14 @@ def render(data: dict[str, Any]) -> str:
     return render_dashboard(data)
 
 
+def count_unclassified_cards(entries: list[dict[str, str]]) -> int:
+    """Count unresolved cards, not the manifest and issue records about them."""
+    return len({
+        (entry.get("query"), entry.get("screenshot"), entry.get("cardId"))
+        for entry in entries
+    })
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Build the search result experience dashboard")
     parser.add_argument("--project-dir", type=Path, default=PROJECT_ROOT)
@@ -1082,7 +1128,7 @@ def main() -> int:
     data["batch"] = args.batch_name or artifact_dir.name
     scope_note = str(evaluation_scope.get("note") or "").strip()
     data["executionNotes"] = [*args.execution_note, *([scope_note] if scope_note else [])]
-    data["unclassifiedCardCount"] = len(data.get("unknown") or [])
+    data["unclassifiedCardCount"] = count_unclassified_cards(data.get("unknown") or [])
     if args.original_screenshot_evidence:
         replace_issue_evidence_with_original_screenshots(data)
     supplied_business_tabs = {code.strip() for code in args.expected_business_tabs.split(",") if code.strip()}

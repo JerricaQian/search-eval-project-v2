@@ -7,18 +7,12 @@
       "rule": "fontSizeBucket is not pt; unavailable exact typography becomes a review item and never a fabricated rating."
     },
     "eval-3-color-logic": {
-      "policy": "required_deterministic_pixel_measurement",
-      "dependencyKey": "component-color-families",
-      "script": "phase3-evaluation/dimensions/card-component/skills/eval-3-color-logic/scripts/compute_component_color_families.py",
-      "arguments": ["--manifest", "<manifest>", "--output", "<artifact>"],
-      "requiredOutput": ["contractVersion", "screenshot", "components"]
+      "policy": "phase2_json_only",
+      "requiredFacts": ["cards[].regions[].elements[].render", "cards[].regions[].elements[].textFacts", "cards[].regions[].elements[].visual"]
     },
     "eval-3-page-color-logic": {
-      "policy": "required_deterministic_pixel_measurement",
-      "dependencyKey": "component-color-families",
-      "script": "phase3-evaluation/dimensions/card-component/skills/eval-3-color-logic/scripts/compute_component_color_families.py",
-      "arguments": ["--manifest", "<manifest>", "--output", "<artifact>"],
-      "requiredOutput": ["contractVersion", "screenshot", "components"]
+      "policy": "phase2_json_only",
+      "requiredFacts": ["cards[].regions[].elements[].render", "cards[].regions[].elements[].textFacts", "cards[].regions[].elements[].visual"]
     }
   }
 }
